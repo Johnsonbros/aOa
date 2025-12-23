@@ -62,6 +62,11 @@ ROUTES = {
     "/intent/stats": ("index", "/intent/stats"),
     "/repos": ("index", "/repos"),
 
+    # Ranking service routes (Phase 1)
+    "/rank": ("index", "/rank"),
+    "/rank/stats": ("index", "/rank/stats"),
+    "/rank/record": ("index", "/rank/record"),
+
     # Status service routes
     "/status": ("status", "/status"),
     "/status/json": ("status", "/status/json"),

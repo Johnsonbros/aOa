@@ -43,8 +43,8 @@ services:
   # ===========================================================================
   index:
     build:
-      context: ./src/index
-      dockerfile: Dockerfile
+      context: ./src
+      dockerfile: index/Dockerfile
     volumes:
       - ${CODEBASE_PATH:-.}:/codebase:ro
       - repos-data:/repos:rw

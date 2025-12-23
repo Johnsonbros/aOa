@@ -183,6 +183,28 @@ def send_intent(tool: str, files: list, tags: list):
     except (URLError, Exception):
         pass  # Graceful failure - never block Claude
 
+    # Record file accesses for ranking (Phase 1)
+    # Strip # from tags for scoring
+    score_tags = [t.lstrip('#') for t in tags]
+    for file_path in files:
+        # Skip pattern entries and non-file paths
+        if file_path.startswith('pattern:') or not file_path.startswith('/'):
+            continue
+        try:
+            score_payload = json.dumps({
+                "file": file_path,
+                "tags": score_tags,
+            }).encode('utf-8')
+            req = Request(
+                f"{AOA_URL}/rank/record",
+                data=score_payload,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            urlopen(req, timeout=1)
+        except (URLError, Exception):
+            pass  # Never block
+
 
 def main():
     # Debug mode: AOA_DEBUG=1 python3 intent-capture.py

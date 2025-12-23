@@ -27,6 +27,17 @@ from flask import Flask, request, jsonify
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+# Ranking module for predictive file scoring
+import sys
+sys.path.insert(0, '/app')  # For Docker
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # For local
+try:
+    from ranking import Scorer
+    RANKING_AVAILABLE = True
+except ImportError:
+    RANKING_AVAILABLE = False
+    Scorer = None
+
 app = Flask(__name__)
 
 # ============================================================================
@@ -1294,11 +1305,109 @@ def intent_stats():
 
 
 # ============================================================================
+# Ranking API - Predictive File Scoring
+# ============================================================================
+
+# Global scorer instance
+scorer = None
+
+
+@app.route('/rank')
+def rank_files():
+    """
+    Get files ranked by composite score (recency + frequency + tag affinity).
+
+    Query params:
+        tag: Comma-separated tags to filter/boost by (optional)
+        limit: Maximum files to return (default: 10)
+        db: Redis database number (for testing, optional)
+
+    Returns:
+        {
+            "files": ["/src/api/routes.py", ...],
+            "details": [{"file": "...", "score": 0.85, ...}, ...],
+            "ms": 4.2
+        }
+    """
+    start = time.time()
+
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({
+            'error': 'Ranking module not available',
+            'files': [],
+            'details': [],
+            'ms': (time.time() - start) * 1000
+        }), 503
+
+    # Parse parameters
+    tag_param = request.args.get('tag', '')
+    tags = [t.strip().lstrip('#') for t in tag_param.split(',') if t.strip()]
+    limit = int(request.args.get('limit', 10))
+    db = request.args.get('db')
+    db = int(db) if db else None
+
+    # Get ranked files
+    try:
+        results = scorer.get_ranked_files(tags=tags if tags else None, limit=limit, db=db)
+
+        return jsonify({
+            'files': [r['file'] for r in results],
+            'details': results,
+            'tags_used': tags,
+            'ms': round((time.time() - start) * 1000, 2)
+        })
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'files': [],
+            'details': [],
+            'ms': (time.time() - start) * 1000
+        }), 500
+
+
+@app.route('/rank/stats')
+def rank_stats():
+    """Get ranking system statistics."""
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Ranking module not available'}), 503
+
+    return jsonify(scorer.get_stats())
+
+
+@app.route('/rank/record', methods=['POST'])
+def rank_record():
+    """
+    Record a file access for scoring.
+
+    POST body:
+        {
+            "file": "/src/api/routes.py",
+            "tags": ["api", "python"]
+        }
+    """
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Ranking module not available'}), 503
+
+    data = request.json or {}
+    file_path = data.get('file')
+    tags = data.get('tags', [])
+
+    if not file_path:
+        return jsonify({'error': 'file parameter required'}), 400
+
+    scores = scorer.record_access(file_path, tags=tags)
+    return jsonify({
+        'recorded': file_path,
+        'scores': scores
+    })
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
 def main():
-    global manager, intent_index
+    global manager, intent_index, scorer
 
     codebase_root = os.environ.get('CODEBASE_ROOT', '.')
     repos_root = os.environ.get('REPOS_ROOT', './repos')
@@ -1311,6 +1420,17 @@ def main():
     # Initialize intent index
     intent_index = IntentIndex()
     print("Intent index initialized")
+
+    # Initialize ranking scorer
+    if RANKING_AVAILABLE:
+        scorer = Scorer()
+        if scorer.redis.ping():
+            print("Ranking scorer initialized (Redis connected)")
+        else:
+            print("Ranking scorer initialized (Redis not available)")
+            scorer = None
+    else:
+        print("Ranking module not available")
     print(f"Local codebase: {codebase_root}")
     print(f"Repos directory: {repos_root}")
     print()

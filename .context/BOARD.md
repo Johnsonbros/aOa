@@ -25,26 +25,27 @@
 
 | # | Task | Expected Output | Solution Pattern | Status | C | R |
 |---|------|-----------------|------------------|--------|---|---|
-| P1-001 | Create ranking package | `/src/ranking/` directory with `__init__.py` | New package structure | Queued | 🟢 | - |
+| P2-001 | Implement confidence calculation | Score 0.0-1.0 per file | Normalize composite score | Ready | 🟡 | GH |
 
 ---
 
-## Phase 1 - Redis Scoring Engine (Week 1)
+## Phase 1 - Redis Scoring Engine ✅ COMPLETE
 
 **Success Criteria**: Files ranked by recency + frequency + tag affinity. `/rank` endpoint returns top 10.
+**Result**: 6/6 rubrics pass, average latency 21ms
 
-| # | Task | Expected Output | Solution Pattern | Deps | Status | C | R |
-|---|------|-----------------|------------------|------|--------|---|---|
-| P1-001 | Create ranking package | `/src/ranking/__init__.py`, `redis_client.py` | New directory, class wrapping redis-py | - | Queued | 🟢 | - |
-| P1-002 | Implement score operations | `zadd()`, `zincrby()`, `zrange()` wrappers | RedisClient class with sorted set methods | P1-001 | Queued | 🟢 | - |
-| P1-003 | Add recency scoring | Files scored by last-access time | `ZADD recency:files <timestamp> <file>` | P1-002 | Queued | 🟢 | - |
-| P1-004 | Add frequency scoring | Files scored by access count | `ZINCRBY frequency:files 1 <file>` | P1-002 | Queued | 🟢 | - |
-| P1-005 | Add tag affinity scoring | Files scored per tag | `ZADD tag:<tag> <score> <file>` | P1-002 | Queued | 🟢 | - |
-| P1-006 | Modify intent-capture.py | Write scores on every intent capture | Import RedisClient, call score methods | P1-003, P1-004, P1-005 | Queued | 🟡 | - |
-| P1-007 | Implement composite scoring | Combined score from all signals | `ZUNIONSTORE` with weights | P1-006 | Queued | 🟡 | GH |
-| P1-008 | Add decay mechanism | Old scores fade over time | Lua script called on schedule/access | P1-007 | Queued | 🔴 | 131 |
-| P1-009 | Add /rank endpoint | `GET /rank?tag=<tag>&limit=10` returns ranked files | New route in indexer.py | P1-007 | Queued | 🟢 | - |
-| P1-010 | Integration test | End-to-end: intent -> score -> rank | Manual test script | P1-009 | Queued | 🟢 | - |
+| # | Task | Expected Output | Solution Pattern | Status |
+|---|------|-----------------|------------------|--------|
+| P1-001 | Create ranking package | `/src/ranking/__init__.py`, `redis_client.py` | New directory, class wrapping redis-py | ✅ |
+| P1-002 | Implement score operations | `zadd()`, `zincrby()`, `zrange()` wrappers | RedisClient class with sorted set methods | ✅ |
+| P1-003 | Add recency scoring | Files scored by last-access time | Normalized exponential decay (1hr half-life) | ✅ |
+| P1-004 | Add frequency scoring | Files scored by access count | `ZINCRBY frequency:files 1 <file>` | ✅ |
+| P1-005 | Add tag affinity scoring | Files scored per tag | `ZADD tag:<tag> <score> <file>` | ✅ |
+| P1-006 | Modify intent-capture.py | Write scores on every intent capture | POST to /rank/record on each file | ✅ |
+| P1-007 | Implement composite scoring | Combined score from all signals | Weighted sum with normalization | ✅ |
+| P1-008 | Add decay mechanism | Old scores fade over time | Exponential decay in scorer.py | ✅ |
+| P1-009 | Add /rank endpoint | `GET /rank?tag=<tag>&limit=10` returns ranked files | New route in indexer.py | ✅ |
+| P1-010 | Integration test | End-to-end: intent -> score -> rank | Benchmark rubrics (6/6 pass) | ✅ |
 
 ---
 
@@ -54,7 +55,7 @@
 
 | # | Task | Expected Output | Solution Pattern | Deps | Status | C | R |
 |---|------|-----------------|------------------|------|--------|---|---|
-| P2-001 | Implement confidence calculation | Score 0.0-1.0 per file | Normalize composite score | P1-007 | Queued | 🟡 | GH |
+| P2-001 | Implement confidence calculation | Score 0.0-1.0 per file | Normalize composite score | P1-007 | Active | 🟡 | GH |
 | P2-002 | Create /predict endpoint | `GET /predict?tags=X,Y` returns predictions | New route using scorer | P2-001 | Queued | 🟢 | - |
 | P2-003 | Update intent-prefetch.py | Output predictions to Claude | Call /predict, format output | P2-002 | Queued | 🔴 | 131 |
 | P2-004 | Implement context peek | First N lines of predicted files | Read + truncate in prefetch | P2-003 | Queued | 🟢 | - |
@@ -96,8 +97,8 @@
 
 | Phase | Focus | Status | Blocked By | Success Metric |
 |-------|-------|--------|------------|----------------|
-| 1 | Redis Scoring Engine | Active | - | /rank returns ranked files |
-| 2 | Predictive Prefetch | Queued | Phase 1 | PreHook outputs predictions |
+| 1 | Redis Scoring Engine | ✅ Complete | - | /rank returns ranked files (6/6 rubrics) |
+| 2 | Predictive Prefetch | Ready | - | PreHook outputs predictions |
 | 3 | Multi-Query Fusion | Queued | Phase 2 | /context endpoint works |
 | 4 | Accuracy Tuning | Queued | Phase 3 | 90% hit rate |
 
@@ -107,6 +108,7 @@
 
 | # | Task | Output | Completed |
 |---|------|--------|-----------|
+| P1 | Phase 1 - Redis Scoring Engine | 6/6 rubrics pass, 21ms avg latency | 2025-12-23 |
 | - | GH Analysis | 4-phase implementation plan | 2025-12-23 |
 | - | Current state assessment | Services running, 75 intents captured | 2025-12-23 |
 

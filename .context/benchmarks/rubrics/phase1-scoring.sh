@@ -30,14 +30,12 @@ NC='\033[0m'
 # ============================================================
 
 setup() {
-    # Switch to test database and clear it
-    $REDIS_CLI SELECT $TEST_DB > /dev/null 2>&1
-    $REDIS_CLI FLUSHDB > /dev/null 2>&1
+    # Clear test database (use -n flag for database selection)
+    $REDIS_CLI -n $TEST_DB FLUSHDB > /dev/null 2>&1
 }
 
 teardown() {
-    $REDIS_CLI SELECT $TEST_DB > /dev/null 2>&1
-    $REDIS_CLI FLUSHDB > /dev/null 2>&1
+    $REDIS_CLI -n $TEST_DB FLUSHDB > /dev/null 2>&1
 }
 
 # Check if services are available
@@ -79,11 +77,10 @@ test_recency_dominance() {
     now=$(date +%s)
 
     # Old access (1 hour ago)
-    $REDIS_CLI SELECT $TEST_DB > /dev/null
-    $REDIS_CLI ZADD "aoa:recency" $((now - 3600)) "/src/old_file.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:recency" $((now - 3600)) "/src/old_file.py" > /dev/null
 
     # Recent access (now)
-    $REDIS_CLI ZADD "aoa:recency" "$now" "/src/recent_file.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:recency" "$now" "/src/recent_file.py" > /dev/null
 
     # Query the rank endpoint
     local result
@@ -117,13 +114,11 @@ test_frequency_dominance() {
 
     setup
 
-    $REDIS_CLI SELECT $TEST_DB > /dev/null
-
     # Low frequency (1 access)
-    $REDIS_CLI ZADD "aoa:frequency" 1 "/src/rare_file.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:frequency" 1 "/src/rare_file.py" > /dev/null
 
     # High frequency (10 accesses)
-    $REDIS_CLI ZADD "aoa:frequency" 10 "/src/common_file.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:frequency" 10 "/src/common_file.py" > /dev/null
 
     local result
     result=$(curl -s "$AOA_URL/rank?db=$TEST_DB&limit=2" 2>/dev/null) || {
@@ -156,17 +151,15 @@ test_tag_affinity() {
 
     setup
 
-    $REDIS_CLI SELECT $TEST_DB > /dev/null
-
     # File associated with #api tag
-    $REDIS_CLI ZADD "aoa:tag:api" 5 "/src/api/routes.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:tag:api" 5 "/src/api/routes.py" > /dev/null
 
     # File associated with #testing tag (not #api)
-    $REDIS_CLI ZADD "aoa:tag:testing" 5 "/tests/test_routes.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:tag:testing" 5 "/tests/test_routes.py" > /dev/null
 
     # Also add both to frequency so they're in the pool
-    $REDIS_CLI ZADD "aoa:frequency" 1 "/src/api/routes.py" > /dev/null
-    $REDIS_CLI ZADD "aoa:frequency" 1 "/tests/test_routes.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:frequency" 1 "/src/api/routes.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:frequency" 1 "/tests/test_routes.py" > /dev/null
 
     local result
     result=$(curl -s "$AOA_URL/rank?db=$TEST_DB&tag=api&limit=2" 2>/dev/null) || {
@@ -202,21 +195,19 @@ test_composite_scoring() {
     local now
     now=$(date +%s)
 
-    $REDIS_CLI SELECT $TEST_DB > /dev/null
-
     # File A: recent, low frequency, no tag
-    $REDIS_CLI ZADD "aoa:recency" "$now" "/src/fileA.py" > /dev/null
-    $REDIS_CLI ZADD "aoa:frequency" 1 "/src/fileA.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:recency" "$now" "/src/fileA.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:frequency" 1 "/src/fileA.py" > /dev/null
 
     # File B: old, high frequency, has tag
-    $REDIS_CLI ZADD "aoa:recency" $((now - 3600)) "/src/fileB.py" > /dev/null
-    $REDIS_CLI ZADD "aoa:frequency" 20 "/src/fileB.py" > /dev/null
-    $REDIS_CLI ZADD "aoa:tag:api" 10 "/src/fileB.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:recency" $((now - 3600)) "/src/fileB.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:frequency" 20 "/src/fileB.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:tag:api" 10 "/src/fileB.py" > /dev/null
 
     # File C: medium recency, medium frequency, has tag
-    $REDIS_CLI ZADD "aoa:recency" $((now - 600)) "/src/fileC.py" > /dev/null
-    $REDIS_CLI ZADD "aoa:frequency" 8 "/src/fileC.py" > /dev/null
-    $REDIS_CLI ZADD "aoa:tag:api" 10 "/src/fileC.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:recency" $((now - 600)) "/src/fileC.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:frequency" 8 "/src/fileC.py" > /dev/null
+    $REDIS_CLI -n $TEST_DB ZADD "aoa:tag:api" 10 "/src/fileC.py" > /dev/null
 
     local result
     result=$(curl -s "$AOA_URL/rank?db=$TEST_DB&tag=api&limit=3" 2>/dev/null) || {
@@ -294,12 +285,10 @@ test_latency() {
 
     setup
 
-    $REDIS_CLI SELECT $TEST_DB > /dev/null
-
     # Populate with 1000 files
     echo -n "  Populating 1000 files..."
     for i in $(seq 1 1000); do
-        $REDIS_CLI ZADD "aoa:frequency" "$i" "/src/file$i.py" > /dev/null
+        $REDIS_CLI -n $TEST_DB ZADD "aoa:frequency" "$i" "/src/file$i.py" > /dev/null
     done
     echo " done"
 
