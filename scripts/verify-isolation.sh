@@ -159,7 +159,7 @@ echo "5. Verifying Docker network configuration..."
 echo
 
 echo -n "  aoa-internal is internal... "
-INTERNAL=$(docker network inspect claudacity_aoa-internal --format '{{.Internal}}' 2>/dev/null || echo "false")
+INTERNAL=$(docker network inspect aoa_aoa-internal --format '{{.Internal}}' 2>/dev/null || echo "false")
 if [ "$INTERNAL" = "true" ]; then
     echo -e "${GREEN}OK${NC} (internal=true)"
     ((PASS++))
@@ -169,7 +169,7 @@ else
 fi
 
 echo -n "  aoa-external is not internal... "
-EXTERNAL=$(docker network inspect claudacity_aoa-external --format '{{.Internal}}' 2>/dev/null || echo "true")
+EXTERNAL=$(docker network inspect aoa_aoa-external --format '{{.Internal}}' 2>/dev/null || echo "true")
 if [ "$EXTERNAL" = "false" ]; then
     echo -e "${GREEN}OK${NC} (internal=false)"
     ((PASS++))

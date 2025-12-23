@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claudacity Status Service
+aOa Status Service
 Real-time Claude Code session monitoring backed by Redis.
 
 Tracks: model, tokens, cache, context, cost, weekly usage, time.
@@ -53,12 +53,12 @@ CONTEXT_LIMITS = {
 
 # Redis keys
 class Keys:
-    SESSION = "claudacity:session"           # Hash: session state
-    METRICS = "claudacity:metrics"           # Hash: running totals
-    HISTORY = "claudacity:history"           # List: recent events
-    DAILY = "claudacity:daily:{date}"        # Hash: daily stats
-    WEEKLY = "claudacity:weekly"             # Hash: weekly tracking
-    PROJECT = "claudacity:project:{name}"    # Hash: per-project totals
+    SESSION = "aoa:session"           # Hash: session state
+    METRICS = "aoa:metrics"           # Hash: running totals
+    HISTORY = "aoa:history"           # List: recent events
+    DAILY = "aoa:daily:{date}"        # Hash: daily stats
+    WEEKLY = "aoa:weekly"             # Hash: weekly tracking
+    PROJECT = "aoa:project:{name}"    # Hash: per-project totals
 
 # =============================================================================
 # Data Models
@@ -112,7 +112,7 @@ class StatusLine:
     
     def format(self) -> str:
         return (
-            f"claudacity ─ {self.model} │ "
+            f"aOa ─ {self.model} │ "
             f"ctx: {self.context} │ "
             f"in: {self.tokens_in} out: {self.tokens_out} │ "
             f"cache: {self.cache_pct} │ "
@@ -356,7 +356,7 @@ manager: Optional[StatusManager] = None
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok', 'service': 'claudacity-status'})
+    return jsonify({'status': 'ok', 'service': 'aoa-status'})
 
 @app.route('/status')
 def status():
@@ -463,7 +463,7 @@ def weekly_reset():
 def main():
     global manager
     
-    print(f"Starting Claudacity Status Service")
+    print(f"Starting aOa Status Service")
     print(f"Redis: {REDIS_URL}")
     print(f"Port: {PORT}")
     

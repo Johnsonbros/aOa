@@ -1,0 +1,20 @@
+{
+  "_aoa_display": "statusLine only - no inline output",
+
+  "statusLine": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-status.sh\"",
+
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Bash|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/intent-capture.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

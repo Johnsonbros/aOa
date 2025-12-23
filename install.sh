@@ -149,6 +149,12 @@ echo
 # 3. Build and Start Services
 # =============================================================================
 
+# Use current directory as codebase root (override with CODEBASE_PATH env var)
+export CODEBASE_PATH="${CODEBASE_PATH:-.}"
+
+echo "Codebase path: ${CODEBASE_PATH} ($(cd "${CODEBASE_PATH}" && pwd))"
+echo
+
 echo "Building Docker services..."
 docker compose build --quiet
 
@@ -190,13 +196,15 @@ echo "Verifying installation..."
 echo
 echo -e "${GREEN}${BOLD}⚡ aOa Installation Complete!${NC}"
 echo
-echo "Next steps:"
-echo "  1. Index your codebase:  aoa init /path/to/your/code"
-echo "  2. Test search:          aoa search <term>"
-echo "  3. View network:         curl localhost:8080/network"
-echo "  4. Run benchmark:        ./scripts/benchmark.sh"
+echo "Indexed: $(cd "${CODEBASE_PATH}" && pwd)"
 echo
-echo "Configuration: .aoa/config.json"
-echo "Whitelist:     .aoa/whitelist.txt"
-echo "Docs:          docs/"
+echo "Try it:"
+echo "  aoa search <term>          Search your code"
+echo "  aoa health                 Check services"
+echo "  curl localhost:8080/network  View network topology"
+echo
+echo "To index a different directory:"
+echo "  CODEBASE_PATH=/other/path docker compose up -d"
+echo
+echo "Config: .aoa/config.json | Whitelist: .aoa/whitelist.txt"
 echo

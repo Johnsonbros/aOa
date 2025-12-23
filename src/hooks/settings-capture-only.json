@@ -1,0 +1,18 @@
+{
+  "_aoa_display": "capture only - no visible output, just tracking",
+
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Bash|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/intent-capture.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

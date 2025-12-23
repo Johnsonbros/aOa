@@ -627,7 +627,7 @@ cmd_intent_stats() {
 # =============================================================================
 
 cmd_health() {
-    echo -e "${BOLD}Claudacity Services${NC}"
+    echo -e "${BOLD}aOa Services${NC}"
     echo ""
 
     # Check index service

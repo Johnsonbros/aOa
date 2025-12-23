@@ -1305,7 +1305,7 @@ def main():
     port = int(os.environ.get('PORT', 9999))
 
     print("=" * 60)
-    print("Claudacity Index Service - Multi-Index Architecture")
+    print("aOa Index Service - Multi-Index Architecture")
     print("=" * 60)
 
     # Initialize intent index

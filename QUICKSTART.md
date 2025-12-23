@@ -17,10 +17,7 @@ aoa health
 ## Your First Search
 
 ```bash
-# Index your codebase
-aoa init /path/to/your/project
-
-# Search for a term
+# Search for a term (current directory is indexed by default)
 aoa search handleAuth
 
 # Multi-term ranked search
@@ -46,9 +43,29 @@ aoa repo flask search Blueprint
 aoa repo flask files "*.py"
 ```
 
-## Intent Tracking (Automatic)
+## Claude Code Integration
 
-aOa learns as you work. After ~50 tool calls:
+Install hooks to enable intent tracking:
+
+```bash
+# Install hooks to your project
+./src/hooks/install-hooks.sh /path/to/your/project
+
+# Or manually copy to .claude/hooks/
+cp src/hooks/intent-*.py /path/to/your/project/.claude/hooks/
+cp src/hooks/settings.local.json /path/to/your/project/.claude/
+```
+
+**Restart Claude Code after installing hooks.**
+
+On your next prompt, you'll see:
+```
+⚡ aOa │ 12 intents │ 5 tags │ 34ms │ reading python api
+```
+
+## Intent Tracking
+
+The hooks learn automatically as you work:
 
 ```bash
 # See what you've been working on

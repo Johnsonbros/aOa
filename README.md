@@ -26,13 +26,10 @@ AI coding agents waste 60-70% of their context on exploration:
 ## Quickstart
 
 ```bash
-# Clone and run
+# Clone and run (indexes current directory by default)
 git clone https://github.com/you/aOa
 cd aOa
 ./install.sh
-
-# Index your codebase
-aoa init /path/to/your/code
 
 # Search (O(1) inverted index)
 aoa search handleAuth     # <5ms
@@ -94,11 +91,14 @@ USER → Gateway:8080 (ONLY exposed port)
 git clone https://github.com/you/aOa
 cd aOa
 
-# 2. Run installer (checks Docker, starts services)
+# 2. Run installer (indexes current directory by default)
 ./install.sh
 
 # 3. Verify it's working
 aoa health
+
+# To index a different directory:
+CODEBASE_PATH=/path/to/your/code ./install.sh
 ```
 
 ---
