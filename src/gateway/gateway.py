@@ -72,6 +72,18 @@ ROUTES = {
     "/predict/log": ("index", "/predict/log"),
     "/predict/check": ("index", "/predict/check"),
     "/predict/stats": ("index", "/predict/stats"),
+    "/predict/finalize": ("index", "/predict/finalize"),
+
+    # Weight tuner routes (Phase 4)
+    "/tuner/weights": ("index", "/tuner/weights"),
+    "/tuner/best": ("index", "/tuner/best"),
+    "/tuner/stats": ("index", "/tuner/stats"),
+    "/tuner/feedback": ("index", "/tuner/feedback"),
+    "/tuner/reset": ("index", "/tuner/reset"),
+
+    # Metrics endpoint (Phase 4)
+    "/metrics": ("index", "/metrics"),
+    "/metrics/tokens": ("index", "/metrics/tokens"),
 
     # Transition model routes (Phase 3)
     "/transitions/sync": ("index", "/transitions/sync"),

@@ -1,88 +1,77 @@
 # aOa Context Intelligence - Beacon
 
-> **Session**: 06 | **Date**: 2025-12-23
-> **Phase**: 3 - Transition Model
-> **Previous**: Phase 2 complete (7/7 tasks)
+> **Session**: 09 | **Date**: 2025-12-25
+> **Phase**: 4 - Weight Optimization (5/6 complete)
+> **Previous Session Summary**: `.context/details/2025-12-25-session-08-summary.md`
 
 ---
 
 ## Now
 
-P3-001 and P3-002 COMPLETE. Transition model working:
-- 49 sessions parsed, 165 reads extracted
-- 57 source files, 94 transitions stored in Redis
-- `/predict?file=X` now boosts predictions using transitions
+P4-006: Achieve 90% Hit@5 accuracy. Tuner infrastructure complete, awaiting data collection.
+
+## Session 08 Accomplishments
+
+**Full details**: See `.context/details/2025-12-25-session-08-summary.md`
+
+| # | Task | Output |
+|---|------|--------|
+| P4-001 | Rolling hit rate | Redis ZSET 24h window, /predict/stats, /predict/finalize |
+| P4-002 | Thompson Sampling | WeightTuner class, 8 arms, Beta distributions |
+| P4-003 | /metrics endpoint | Unified dashboard with Hit@5, trend, tuner stats |
+| P4-004 | Token cost tracking | $2,378 saved from 99.55% cache hit rate |
+| P4-005 | aoa metrics CLI | `aoa metrics` + `aoa metrics tokens` commands |
+
+**New Infrastructure**:
+- Scout agent (`.claude/agents/scout.md`) - fast file prediction via `aoa context`
+- aoa-search skill (`.claude/skills/aoa-search.md`) - centralized aoa documentation
 
 ## Active
 
-| # | Task | Solution Pattern | C | R |
-|---|------|------------------|---|---|
-| P3-003 | Keyword extraction | Reuse INTENT_PATTERNS from hooks | 🟢 | ✓ |
+| # | Task | Expected Output | Status |
+|---|------|-----------------|--------|
+| P4-006 | Achieve 90% accuracy | Hit@5 >= 90% | Active - awaiting data |
 
-## Completed This Session
+## What P4-006 Needs
 
-| # | Task | Result |
-|---|------|--------|
-| P3-001 | Session log parser | `src/ranking/session_parser.py` - parses Claude JSONL |
-| P3-002 | Transition matrix | 94 transitions in Redis, integrated into `/predict` |
+The infrastructure is complete. No active work required:
+1. Tuner learns automatically from prediction feedback
+2. Need ~100+ samples per arm for statistical confidence
+3. Monitor with `aoa metrics`
 
-## Queued
-
-| # | Task | Solution Pattern | C | R |
-|---|------|------------------|---|---|
-| P3-004 | /context endpoint | Combine transitions + tags + keywords | 🟢 | ✓ |
-| P3-005 | `aoa context` CLI | CLI wrapper for /context | 🟢 | - |
-| P3-006 | Caching layer | Redis cache for common intents | 🟢 | ✓ |
-
-## Blocked
-
-- None
-
-## Key Files Created
+## Key Files
 
 ```
-src/ranking/session_parser.py    # New - parses Claude session logs
-docker-compose.yml               # Modified - mounts ~/.claude
-src/index/indexer.py             # Modified - /transitions/* endpoints
-src/gateway/gateway.py           # Modified - routes for transitions
+src/ranking/scorer.py           # WeightTuner class (lines 413-591)
+src/index/indexer.py            # /tuner/*, /metrics endpoints
+src/ranking/session_parser.py   # get_token_usage() method
+/home/corey/bin/aoa             # metrics CLI commands
 ```
 
-## New API Endpoints
+## API Quick Reference
+
+| Endpoint | Purpose |
+|----------|---------|
+| GET /metrics | Unified accuracy dashboard |
+| GET /metrics/tokens | Token usage and costs |
+| GET /tuner/weights | Thompson Sampling weights |
+| GET /tuner/best | Best performing configuration |
+| GET /tuner/stats | All arm statistics |
+| POST /tuner/feedback | Record hit/miss for learning |
+| POST /predict/finalize | Mark stale predictions as misses |
+
+## Resume Commands
 
 ```bash
-# Sync transitions from Claude logs to Redis
-curl -X POST "localhost:8080/transitions/sync" -H "Content-Type: application/json" -d '{}'
+# System health
+aoa health
 
-# Get transition predictions for a file
-curl "localhost:8080/transitions/predict?file=.context/CURRENT.md"
+# Accuracy dashboard
+aoa metrics
 
-# Get transition stats
-curl "localhost:8080/transitions/stats"
+# Token economics
+aoa metrics tokens
 
-# Integrated prediction (uses transitions when file param provided)
-curl "localhost:8080/predict?file=.context/CURRENT.md&snippet_lines=0"
-```
-
-## Transition Model Stats
-
-```
-Sessions parsed: 49
-Total reads: 165
-Unique files: 70
-Source files with transitions: 57
-Total transitions: 94
-
-Top transition: .context/CURRENT.md -> .context/BOARD.md (70% probability)
-```
-
-## Next Action
-
-P3-003: Pattern-based keyword extraction from intent text.
-
-## Resume Command
-
-```bash
-# Continue with P3-003: Keyword extraction
-# Reuse INTENT_PATTERNS from intent-capture.py
-# Extract keywords from natural language intent
+# Tuner arm statistics
+curl localhost:8080/tuner/stats | jq .
 ```

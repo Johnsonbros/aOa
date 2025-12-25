@@ -45,7 +45,33 @@ class SessionLogParser:
         claude_sessions = os.environ.get('CLAUDE_SESSIONS')
         if claude_sessions:
             # Running in Docker with mounted sessions
-            self.base_path = Path(claude_sessions) / 'projects' / self.project_slug
+            # Use AOA_PROJECT_SLUG if set, otherwise try to find the right project
+            env_slug = os.environ.get('AOA_PROJECT_SLUG')
+            if env_slug:
+                self.base_path = Path(claude_sessions) / 'projects' / env_slug
+            else:
+                # Try common project paths, or fall back to searching
+                projects_dir = Path(claude_sessions) / 'projects'
+                candidate_slugs = [
+                    '-home-corey-aOa',  # Default for aOa project
+                    self.project_slug,  # Computed slug
+                ]
+                self.base_path = None
+                for slug in candidate_slugs:
+                    candidate = projects_dir / slug
+                    if candidate.exists():
+                        self.base_path = candidate
+                        break
+
+                # If still not found, use first project dir with session files
+                if not self.base_path and projects_dir.exists():
+                    for proj_dir in projects_dir.iterdir():
+                        if proj_dir.is_dir() and list(proj_dir.glob('*.jsonl')):
+                            self.base_path = proj_dir
+                            break
+
+                if not self.base_path:
+                    self.base_path = projects_dir / self.project_slug
         else:
             # Running locally
             self.base_path = Path.home() / '.claude' / 'projects' / self.project_slug
@@ -247,6 +273,103 @@ class SessionLogParser:
             'unique_files': len(unique_files),
             'base_path': str(self.base_path)
         }
+
+    def get_token_usage(self) -> dict:
+        """
+        Get token usage statistics from session logs.
+
+        Parses all session logs and aggregates token counts including:
+        - Total input tokens
+        - Total output tokens
+        - Cache creation tokens
+        - Cache read tokens (savings from caching)
+
+        Returns:
+            Dict with token usage statistics and estimated cost savings
+        """
+        # Claude API pricing (as of Dec 2024)
+        # Opus: $15/M input, $75/M output
+        # Cache write: $18.75/M, Cache read: $1.50/M
+        PRICE_INPUT = 15.0 / 1_000_000
+        PRICE_OUTPUT = 75.0 / 1_000_000
+        PRICE_CACHE_WRITE = 18.75 / 1_000_000
+        PRICE_CACHE_READ = 1.50 / 1_000_000
+
+        sessions = self.list_all_sessions()
+
+        stats = {
+            'input_tokens': 0,
+            'output_tokens': 0,
+            'cache_creation_tokens': 0,
+            'cache_read_tokens': 0,
+            'message_count': 0,
+        }
+
+        for session_file in sessions:
+            try:
+                with open(session_file, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            event = json.loads(line)
+                            if 'message' in event and 'usage' in event['message']:
+                                usage = event['message']['usage']
+                                stats['input_tokens'] += usage.get('input_tokens', 0)
+                                stats['output_tokens'] += usage.get('output_tokens', 0)
+                                stats['cache_creation_tokens'] += usage.get('cache_creation_input_tokens', 0)
+                                stats['cache_read_tokens'] += usage.get('cache_read_input_tokens', 0)
+                                stats['message_count'] += 1
+                        except json.JSONDecodeError:
+                            continue
+            except Exception:
+                continue
+
+        # Calculate costs
+        input_cost = stats['input_tokens'] * PRICE_INPUT
+        output_cost = stats['output_tokens'] * PRICE_OUTPUT
+        cache_write_cost = stats['cache_creation_tokens'] * PRICE_CACHE_WRITE
+        cache_read_cost = stats['cache_read_tokens'] * PRICE_CACHE_READ
+
+        # Cache savings = what we would have paid if cache reads were full price inputs
+        cache_savings = stats['cache_read_tokens'] * (PRICE_INPUT - PRICE_CACHE_READ)
+
+        total_cost = input_cost + output_cost + cache_write_cost + cache_read_cost
+        total_tokens = stats['input_tokens'] + stats['output_tokens']
+
+        return {
+            'input_tokens': stats['input_tokens'],
+            'output_tokens': stats['output_tokens'],
+            'cache_creation_tokens': stats['cache_creation_tokens'],
+            'cache_read_tokens': stats['cache_read_tokens'],
+            'total_tokens': total_tokens,
+            'message_count': stats['message_count'],
+
+            # Costs in dollars
+            'cost': {
+                'input': round(input_cost, 4),
+                'output': round(output_cost, 4),
+                'cache_write': round(cache_write_cost, 4),
+                'cache_read': round(cache_read_cost, 4),
+                'total': round(total_cost, 4),
+            },
+
+            # Savings from caching
+            'savings': {
+                'from_cache': round(cache_savings, 4),
+                'cache_hit_rate': round(
+                    stats['cache_read_tokens'] / (stats['input_tokens'] + stats['cache_read_tokens'])
+                    if (stats['input_tokens'] + stats['cache_read_tokens']) > 0 else 0, 4
+                )
+            }
+        }
+
+    def list_all_sessions(self) -> List[Path]:
+        """List all session files (both agent-*.jsonl and regular *.jsonl)."""
+        if not self.base_path.exists():
+            return []
+        return sorted(self.base_path.glob('*.jsonl'))
 
     def sync_to_redis(self, redis_client: 'RedisClient') -> dict:
         """

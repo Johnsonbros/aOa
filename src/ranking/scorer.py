@@ -2,9 +2,11 @@
 aOa Scorer - File Ranking by Recency, Frequency, and Tag Affinity
 
 Provides predictive file scoring for prefetch optimization.
+Includes Thompson Sampling for weight optimization (Phase 4).
 """
 
 import math
+import random
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -406,3 +408,183 @@ class Scorer:
         if keys:
             return self.redis.delete(*keys)
         return 0
+
+
+# =============================================================================
+# Weight Tuner - Thompson Sampling for Phase 4
+# =============================================================================
+
+class WeightTuner:
+    """
+    Thompson Sampling weight optimizer for Hit@5 maximization.
+
+    Maintains Beta distributions for discrete weight configurations (arms),
+    updating based on hit/miss feedback from predictions.
+
+    Usage:
+        tuner = WeightTuner(redis_client)
+        weights = tuner.select_weights()  # Get weights for this prediction
+        # ... make prediction, observe outcome ...
+        tuner.record_feedback(hit=True)   # Record outcome
+    """
+
+    # Discrete weight configurations (arms) to try
+    # Each must sum to 1.0
+    ARMS = [
+        {'recency': 0.5, 'frequency': 0.3, 'tag': 0.2, 'name': 'recency-heavy'},
+        {'recency': 0.4, 'frequency': 0.4, 'tag': 0.2, 'name': 'balanced-rf'},
+        {'recency': 0.4, 'frequency': 0.3, 'tag': 0.3, 'name': 'default'},
+        {'recency': 0.3, 'frequency': 0.4, 'tag': 0.3, 'name': 'frequency-heavy'},
+        {'recency': 0.3, 'frequency': 0.3, 'tag': 0.4, 'name': 'tag-heavy'},
+        {'recency': 0.2, 'frequency': 0.4, 'tag': 0.4, 'name': 'low-recency'},
+        {'recency': 0.5, 'frequency': 0.2, 'tag': 0.3, 'name': 'high-rec-low-freq'},
+        {'recency': 0.33, 'frequency': 0.33, 'tag': 0.34, 'name': 'equal'},
+    ]
+
+    # Redis key prefix for tuner data
+    REDIS_PREFIX = "aoa:tuner"
+
+    def __init__(self, redis_client: Optional[RedisClient] = None):
+        """
+        Initialize with Beta(1,1) priors (uniform) for each arm.
+
+        Args:
+            redis_client: RedisClient instance for persistence
+        """
+        self.redis = redis_client
+        self._current_arm = 0  # Track selected arm for feedback
+
+    def _get_arm_stats(self, arm_idx: int) -> Tuple[int, int]:
+        """
+        Get (alpha, beta) for an arm from Redis.
+
+        Beta(alpha, beta) represents probability of success.
+        Prior: Beta(1, 1) = uniform
+
+        Redis stores the number of hits/misses (starting from 0).
+        We add 1 to each to get the Beta parameters (prior + observations).
+        """
+        if self.redis:
+            key = f"{self.REDIS_PREFIX}:arm:{arm_idx}"
+            alpha_raw = self.redis.client.hget(key, "alpha")
+            beta_raw = self.redis.client.hget(key, "beta")
+
+            # Redis stores observations (0-indexed), add 1 for prior
+            alpha = int(alpha_raw) + 1 if alpha_raw else 1
+            beta = int(beta_raw) + 1 if beta_raw else 1
+            return (alpha, beta)
+        return (1, 1)  # Default prior
+
+    def _update_arm_stats(self, arm_idx: int, hit: bool):
+        """Update arm stats after feedback."""
+        if self.redis:
+            key = f"{self.REDIS_PREFIX}:arm:{arm_idx}"
+            if hit:
+                self.redis.client.hincrby(key, "alpha", 1)
+            else:
+                self.redis.client.hincrby(key, "beta", 1)
+
+    def select_weights(self) -> Dict[str, float]:
+        """
+        Select weights using Thompson Sampling.
+
+        1. Sample from each arm's Beta distribution
+        2. Select arm with highest sample
+        3. Return that arm's weights
+
+        Returns:
+            Dict with 'recency', 'frequency', 'tag' weights
+        """
+        best_arm = 0
+        best_sample = -1.0
+
+        for idx in range(len(self.ARMS)):
+            alpha, beta = self._get_arm_stats(idx)
+            # Sample from Beta(alpha, beta)
+            sample = random.betavariate(alpha, beta)
+            if sample > best_sample:
+                best_sample = sample
+                best_arm = idx
+
+        # Store selected arm for feedback
+        self._current_arm = best_arm
+
+        # Return weights (excluding 'name' key)
+        arm = self.ARMS[best_arm]
+        return {
+            'recency': arm['recency'],
+            'frequency': arm['frequency'],
+            'tag': arm['tag'],
+            '_arm_idx': best_arm,  # Include for tracking
+        }
+
+    def record_feedback(self, hit: bool, arm_idx: Optional[int] = None):
+        """
+        Record hit/miss feedback for the selected arm.
+
+        Args:
+            hit: True if prediction was a hit
+            arm_idx: Arm index (defaults to last selected)
+        """
+        arm = arm_idx if arm_idx is not None else self._current_arm
+        self._update_arm_stats(arm, hit)
+
+    def get_best_weights(self) -> Dict[str, float]:
+        """
+        Get the arm with highest expected success rate.
+        (For exploitation only, no exploration)
+        """
+        best_arm = 0
+        best_mean = 0.0
+
+        for idx in range(len(self.ARMS)):
+            alpha, beta = self._get_arm_stats(idx)
+            mean = alpha / (alpha + beta)
+            if mean > best_mean:
+                best_mean = mean
+                best_arm = idx
+
+        arm = self.ARMS[best_arm]
+        return {
+            'recency': arm['recency'],
+            'frequency': arm['frequency'],
+            'tag': arm['tag'],
+            '_arm_idx': best_arm,
+            '_mean': best_mean,
+        }
+
+    def get_stats(self) -> List[Dict]:
+        """
+        Get statistics for all arms, sorted by mean success rate.
+
+        Returns:
+            List of dicts with arm info, alpha, beta, mean, samples
+        """
+        stats = []
+        for idx, arm in enumerate(self.ARMS):
+            alpha, beta = self._get_arm_stats(idx)
+            samples = alpha + beta - 2  # Subtract prior
+
+            stats.append({
+                'arm_idx': idx,
+                'name': arm.get('name', f'arm-{idx}'),
+                'weights': {
+                    'recency': arm['recency'],
+                    'frequency': arm['frequency'],
+                    'tag': arm['tag'],
+                },
+                'alpha': alpha,
+                'beta': beta,
+                'mean': round(alpha / (alpha + beta), 4),
+                'samples': samples,
+            })
+
+        # Sort by mean descending
+        return sorted(stats, key=lambda x: x['mean'], reverse=True)
+
+    def reset(self):
+        """Reset all arm statistics to priors."""
+        if self.redis:
+            for idx in range(len(self.ARMS)):
+                key = f"{self.REDIS_PREFIX}:arm:{idx}"
+                self.redis.client.delete(key)

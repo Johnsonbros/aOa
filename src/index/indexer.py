@@ -32,11 +32,12 @@ import sys
 sys.path.insert(0, '/app')  # For Docker
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # For local
 try:
-    from ranking import Scorer
+    from ranking import Scorer, WeightTuner
     RANKING_AVAILABLE = True
 except ImportError:
     RANKING_AVAILABLE = False
     Scorer = None
+    WeightTuner = None
 
 app = Flask(__name__)
 
@@ -1309,8 +1310,12 @@ def intent_stats():
 
 
 # ============================================================================
-# Prediction Tracking API - Phase 2 Session Correlation
+# Prediction Tracking API - Phase 2 Session Correlation + Phase 4 Rolling Metrics
 # ============================================================================
+
+# Rolling window constants for Hit@5 calculation
+ROLLING_WINDOW_HOURS = 24
+ROLLING_WINDOW_SECONDS = ROLLING_WINDOW_HOURS * 3600
 
 @app.route('/predict/log', methods=['POST'])
 def log_prediction():
@@ -1325,6 +1330,8 @@ def log_prediction():
         "trigger_file": "/src/current.py",
         "confidence": 0.85
     }
+
+    Phase 4: Also logs to rolling ZSET for Hit@5 calculation over 24h window.
     """
     if not RANKING_AVAILABLE or scorer is None:
         return jsonify({'error': 'Redis not available'}), 503
@@ -1342,7 +1349,8 @@ def log_prediction():
     try:
         # Store prediction in Redis with TTL (60 seconds - predictions expire)
         import time as time_module
-        timestamp_ms = int(time_module.time() * 1000)
+        timestamp = time_module.time()
+        timestamp_ms = int(timestamp * 1000)
         prediction_key = f"aoa:prediction:{session_id}:{timestamp_ms}"
 
         prediction_data = {
@@ -1351,10 +1359,11 @@ def log_prediction():
             'predicted_files': predicted_files,
             'tags': tags,
             'trigger_file': trigger_file,
-            'confidence': confidence
+            'confidence': confidence,
+            'hit': None  # Will be set by /predict/check
         }
 
-        # Store prediction with 60s TTL
+        # Store prediction with 60s TTL (for quick lookup during active session)
         scorer.redis.client.setex(
             prediction_key,
             60,  # 60 second TTL
@@ -1365,6 +1374,26 @@ def log_prediction():
         session_predictions_key = f"aoa:predictions:{session_id}"
         scorer.redis.client.lpush(session_predictions_key, prediction_key)
         scorer.redis.client.expire(session_predictions_key, 3600)  # 1 hour TTL for session
+
+        # Phase 4: Add to rolling predictions ZSET for Hit@5 calculation
+        # Score = timestamp, Member = prediction_id
+        # This persists beyond the 60s TTL for rolling metrics
+        rolling_key = "aoa:rolling:predictions"
+        scorer.redis.client.zadd(rolling_key, {prediction_key: timestamp})
+
+        # Store prediction data in a hash that persists for rolling window
+        rolling_data_key = f"aoa:rolling:data:{prediction_key}"
+        scorer.redis.client.hset(rolling_data_key, mapping={
+            'session_id': session_id,
+            'timestamp': str(timestamp),
+            'predicted_files': json.dumps(predicted_files[:5]),  # Top 5 for Hit@5
+            'hit': '',  # Empty = not yet evaluated
+        })
+        scorer.redis.client.expire(rolling_data_key, ROLLING_WINDOW_SECONDS + 3600)  # 25h TTL
+
+        # Cleanup: Remove predictions older than rolling window
+        cutoff = timestamp - ROLLING_WINDOW_SECONDS
+        scorer.redis.client.zremrangebyscore(rolling_key, 0, cutoff)
 
         return jsonify({
             'success': True,
@@ -1388,6 +1417,9 @@ def check_prediction_hit():
     }
 
     Returns whether this file was in recent predictions.
+
+    Phase 4: Also updates rolling data for Hit@5 calculation.
+    A prediction batch is a "hit" if ANY of the top 5 files were read.
     """
     if not RANKING_AVAILABLE or scorer is None:
         return jsonify({'hit': False, 'error': 'Redis not available'}), 503
@@ -1405,20 +1437,36 @@ def check_prediction_hit():
         prediction_keys = scorer.redis.client.lrange(session_predictions_key, 0, 10)
 
         for pred_key in prediction_keys:
-            pred_data = scorer.redis.client.get(pred_key)
+            pred_key_str = pred_key.decode() if isinstance(pred_key, bytes) else pred_key
+            pred_data = scorer.redis.client.get(pred_key_str)
             if pred_data:
                 prediction = json.loads(pred_data)
                 if file_path in prediction.get('predicted_files', []):
-                    # Record the hit
+                    # Record the hit (legacy counter)
                     scorer.redis.client.incr('aoa:metrics:hits')
+
+                    # Phase 4: Mark the prediction batch as a hit in rolling data
+                    rolling_data_key = f"aoa:rolling:data:{pred_key_str}"
+                    current_hit = scorer.redis.client.hget(rolling_data_key, 'hit')
+                    if current_hit is not None:
+                        # Only mark as hit if not already evaluated
+                        current_hit_str = current_hit.decode() if isinstance(current_hit, bytes) else current_hit
+                        if current_hit_str == '':
+                            scorer.redis.client.hset(rolling_data_key, 'hit', '1')
+
                     return jsonify({
                         'hit': True,
-                        'prediction_key': pred_key.decode() if isinstance(pred_key, bytes) else pred_key,
+                        'prediction_key': pred_key_str,
                         'confidence': prediction.get('confidence', 0)
                     })
 
-        # No hit - record miss
+        # No hit - record miss (legacy counter)
         scorer.redis.client.incr('aoa:metrics:misses')
+
+        # Phase 4: Mark any unevaluated predictions as misses after a file read
+        # (This is conservative - we only mark miss if we checked and didn't find a hit)
+        # Note: We don't mark as miss here because the user might still read a predicted file later
+
         return jsonify({'hit': False})
 
     except Exception as e:
@@ -1427,22 +1475,467 @@ def check_prediction_hit():
 
 @app.route('/predict/stats')
 def prediction_stats():
-    """Get prediction hit/miss statistics."""
+    """
+    Get prediction hit/miss statistics.
+
+    Phase 4: Includes rolling Hit@5 over 24h window.
+    """
     if not RANKING_AVAILABLE or scorer is None:
         return jsonify({'error': 'Redis not available'}), 503
 
     try:
+        # Legacy cumulative counters
         hits = int(scorer.redis.client.get('aoa:metrics:hits') or 0)
         misses = int(scorer.redis.client.get('aoa:metrics:misses') or 0)
         total = hits + misses
         hit_rate = (hits / total * 100) if total > 0 else 0
 
+        # Phase 4: Calculate rolling Hit@5 over 24h window
+        rolling_stats = calculate_rolling_hit_rate()
+
         return jsonify({
+            # Legacy stats
             'hits': hits,
             'misses': misses,
             'total': total,
-            'hit_rate': round(hit_rate, 1)
+            'hit_rate': round(hit_rate, 1),
+            # Phase 4 rolling stats
+            'rolling': rolling_stats
         })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def calculate_rolling_hit_rate(window_hours: int = 24) -> dict:
+    """
+    Calculate Hit@5 over a rolling time window.
+
+    Hit@5 = (prediction batches with at least 1 hit) / (total evaluated batches)
+
+    Returns:
+        dict with:
+        - window_hours: The time window
+        - total_predictions: Number of predictions in window
+        - evaluated: Number of predictions that have been evaluated
+        - hits: Number of prediction batches with at least 1 hit
+        - hit_at_5: Hit@5 rate (0.0 to 1.0)
+        - hit_at_5_pct: Hit@5 as percentage (0 to 100)
+    """
+    import time as time_module
+
+    if not RANKING_AVAILABLE or scorer is None:
+        return {'error': 'Redis not available'}
+
+    try:
+        now = time_module.time()
+        window_start = now - (window_hours * 3600)
+
+        # Get all predictions in the rolling window
+        rolling_key = "aoa:rolling:predictions"
+        prediction_keys = scorer.redis.client.zrangebyscore(
+            rolling_key, window_start, now
+        )
+
+        total_predictions = len(prediction_keys)
+        evaluated = 0
+        hits = 0
+        misses = 0
+
+        for pred_key in prediction_keys:
+            pred_key_str = pred_key.decode() if isinstance(pred_key, bytes) else pred_key
+            rolling_data_key = f"aoa:rolling:data:{pred_key_str}"
+
+            hit_value = scorer.redis.client.hget(rolling_data_key, 'hit')
+            if hit_value is not None:
+                hit_str = hit_value.decode() if isinstance(hit_value, bytes) else hit_value
+                if hit_str == '1':
+                    hits += 1
+                    evaluated += 1
+                elif hit_str == '0':
+                    misses += 1
+                    evaluated += 1
+                # Empty string means not yet evaluated
+
+        hit_at_5 = hits / evaluated if evaluated > 0 else 0.0
+
+        return {
+            'window_hours': window_hours,
+            'total_predictions': total_predictions,
+            'evaluated': evaluated,
+            'pending': total_predictions - evaluated,
+            'hits': hits,
+            'misses': misses,
+            'hit_at_5': round(hit_at_5, 4),
+            'hit_at_5_pct': round(hit_at_5 * 100, 1),
+        }
+
+    except Exception as e:
+        return {'error': str(e)}
+
+
+@app.route('/predict/finalize', methods=['POST'])
+def finalize_predictions():
+    """
+    Finalize stale predictions as misses.
+
+    Predictions older than `max_age_seconds` (default 300 = 5 minutes) that
+    haven't been marked as hits are marked as misses.
+
+    POST body (optional):
+    {
+        "max_age_seconds": 300
+    }
+
+    Returns count of predictions finalized.
+    """
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Redis not available'}), 503
+
+    import time as time_module
+
+    data = request.json or {}
+    max_age_seconds = data.get('max_age_seconds', 300)  # 5 minutes default
+
+    try:
+        now = time_module.time()
+        cutoff = now - max_age_seconds
+
+        # Get predictions older than max_age that haven't been evaluated
+        rolling_key = "aoa:rolling:predictions"
+        stale_keys = scorer.redis.client.zrangebyscore(
+            rolling_key, 0, cutoff
+        )
+
+        finalized = 0
+        for pred_key in stale_keys:
+            pred_key_str = pred_key.decode() if isinstance(pred_key, bytes) else pred_key
+            rolling_data_key = f"aoa:rolling:data:{pred_key_str}"
+
+            hit_value = scorer.redis.client.hget(rolling_data_key, 'hit')
+            if hit_value is not None:
+                hit_str = hit_value.decode() if isinstance(hit_value, bytes) else hit_value
+                if hit_str == '':
+                    # Not yet evaluated - mark as miss
+                    scorer.redis.client.hset(rolling_data_key, 'hit', '0')
+                    finalized += 1
+
+        return jsonify({
+            'finalized': finalized,
+            'checked': len(stale_keys),
+            'max_age_seconds': max_age_seconds
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# Weight Tuner API - Phase 4 Thompson Sampling
+# ============================================================================
+
+@app.route('/tuner/weights')
+def tuner_weights():
+    """
+    Get current optimized weights via Thompson Sampling.
+
+    Each call samples from the Beta distributions and returns the best arm.
+    Use for exploration (learning which weights work best).
+
+    Returns:
+        {
+            "weights": {"recency": 0.4, "frequency": 0.3, "tag": 0.3},
+            "arm_idx": 2,
+            "arm_name": "default"
+        }
+    """
+    if tuner is None:
+        return jsonify({'error': 'Tuner not available'}), 503
+
+    try:
+        weights = tuner.select_weights()
+        arm_idx = weights.pop('_arm_idx', 0)
+        arm = tuner.ARMS[arm_idx]
+
+        return jsonify({
+            'weights': weights,
+            'arm_idx': arm_idx,
+            'arm_name': arm.get('name', f'arm-{arm_idx}')
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/tuner/best')
+def tuner_best():
+    """
+    Get the best performing weights (exploitation only, no exploration).
+
+    Returns the arm with highest mean success rate.
+    Use for production predictions once you have enough data.
+
+    Returns:
+        {
+            "weights": {"recency": 0.5, "frequency": 0.3, "tag": 0.2},
+            "arm_idx": 0,
+            "mean": 0.78
+        }
+    """
+    if tuner is None:
+        return jsonify({'error': 'Tuner not available'}), 503
+
+    try:
+        best = tuner.get_best_weights()
+        arm_idx = best.pop('_arm_idx', 0)
+        mean = best.pop('_mean', 0.5)
+        arm = tuner.ARMS[arm_idx]
+
+        return jsonify({
+            'weights': best,
+            'arm_idx': arm_idx,
+            'arm_name': arm.get('name', f'arm-{arm_idx}'),
+            'mean': round(mean, 4)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/tuner/stats')
+def tuner_stats():
+    """
+    Get statistics for all arms, sorted by mean success rate.
+
+    Returns:
+        {
+            "arms": [
+                {"arm_idx": 0, "name": "recency-heavy", "mean": 0.78, ...},
+                ...
+            ],
+            "total_samples": 150
+        }
+    """
+    if tuner is None:
+        return jsonify({'error': 'Tuner not available'}), 503
+
+    try:
+        stats = tuner.get_stats()
+        total_samples = sum(arm['samples'] for arm in stats)
+
+        return jsonify({
+            'arms': stats,
+            'total_samples': total_samples
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/tuner/feedback', methods=['POST'])
+def tuner_feedback():
+    """
+    Record hit/miss feedback for a specific arm.
+
+    POST body:
+    {
+        "arm_idx": 2,
+        "hit": true
+    }
+
+    Returns confirmation of the update.
+    """
+    if tuner is None:
+        return jsonify({'error': 'Tuner not available'}), 503
+
+    data = request.json or {}
+    arm_idx = data.get('arm_idx')
+    hit = data.get('hit', False)
+
+    if arm_idx is None:
+        return jsonify({'error': 'arm_idx required'}), 400
+
+    try:
+        tuner.record_feedback(hit=hit, arm_idx=arm_idx)
+
+        # Get updated stats for this arm
+        alpha, beta = tuner._get_arm_stats(arm_idx)
+
+        return jsonify({
+            'success': True,
+            'arm_idx': arm_idx,
+            'hit': hit,
+            'new_alpha': alpha,
+            'new_beta': beta,
+            'new_mean': round(alpha / (alpha + beta), 4)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/tuner/reset', methods=['POST'])
+def tuner_reset():
+    """
+    Reset all arm statistics to priors.
+
+    Use with caution - this erases all learned data.
+    """
+    if tuner is None:
+        return jsonify({'error': 'Tuner not available'}), 503
+
+    try:
+        tuner.reset()
+        return jsonify({'success': True, 'message': 'All arms reset to priors'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# Metrics API - Phase 4 Unified Accuracy Dashboard
+# ============================================================================
+
+@app.route('/metrics')
+def get_metrics():
+    """
+    Unified metrics endpoint showing accuracy, tuner performance, and trends.
+
+    Returns:
+        {
+            "hit_at_5": 0.72,
+            "hit_at_5_pct": 72.0,
+            "target": 0.90,
+            "gap": 0.18,
+            "trend": "improving",
+
+            "rolling": {
+                "window_hours": 24,
+                "total_predictions": 150,
+                "evaluated": 120,
+                "hits": 86,
+                "hit_at_5": 0.72
+            },
+
+            "tuner": {
+                "best_arm": "recency-heavy",
+                "best_weights": {"recency": 0.5, ...},
+                "best_mean": 0.78,
+                "total_samples": 150
+            },
+
+            "legacy": {
+                "hits": 200,
+                "misses": 100,
+                "hit_rate": 66.7
+            }
+        }
+    """
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Ranking not available'}), 503
+
+    try:
+        # Get rolling stats
+        rolling = calculate_rolling_hit_rate()
+
+        # Get tuner stats
+        tuner_stats = {}
+        if tuner is not None:
+            best = tuner.get_best_weights()
+            arm_idx = best.pop('_arm_idx', 0)
+            mean = best.pop('_mean', 0.5)
+            arm = tuner.ARMS[arm_idx]
+            all_stats = tuner.get_stats()
+
+            tuner_stats = {
+                'best_arm': arm.get('name', f'arm-{arm_idx}'),
+                'best_arm_idx': arm_idx,
+                'best_weights': best,
+                'best_mean': round(mean, 4),
+                'total_samples': sum(a['samples'] for a in all_stats),
+            }
+
+        # Legacy cumulative stats
+        hits = int(scorer.redis.client.get('aoa:metrics:hits') or 0)
+        misses = int(scorer.redis.client.get('aoa:metrics:misses') or 0)
+        total = hits + misses
+        legacy_rate = (hits / total * 100) if total > 0 else 0
+
+        # Calculate main metrics
+        hit_at_5 = rolling.get('hit_at_5', 0.0)
+        target = 0.90
+
+        # Determine trend (would need historical data for real trend)
+        # For now, compare to legacy rate
+        if rolling.get('evaluated', 0) > 10:
+            if hit_at_5 > (legacy_rate / 100) + 0.05:
+                trend = 'improving'
+            elif hit_at_5 < (legacy_rate / 100) - 0.05:
+                trend = 'declining'
+            else:
+                trend = 'stable'
+        else:
+            trend = 'insufficient_data'
+
+        return jsonify({
+            # Primary metrics
+            'hit_at_5': hit_at_5,
+            'hit_at_5_pct': rolling.get('hit_at_5_pct', 0.0),
+            'target': target,
+            'target_pct': target * 100,
+            'gap': round(target - hit_at_5, 4),
+            'trend': trend,
+
+            # Detailed rolling stats
+            'rolling': rolling,
+
+            # Tuner stats
+            'tuner': tuner_stats,
+
+            # Legacy stats (cumulative)
+            'legacy': {
+                'hits': hits,
+                'misses': misses,
+                'total': total,
+                'hit_rate': round(legacy_rate, 1),
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/metrics/tokens')
+def get_token_metrics():
+    """
+    Get token usage and cost statistics from Claude session logs.
+
+    Returns:
+        {
+            "input_tokens": 1234567,
+            "output_tokens": 234567,
+            "cache_read_tokens": 567890,
+            "total_tokens": 1469134,
+            "message_count": 150,
+
+            "cost": {
+                "input": 18.52,
+                "output": 17.59,
+                "total": 36.11
+            },
+
+            "savings": {
+                "from_cache": 7.65,
+                "cache_hit_rate": 0.42
+            }
+        }
+    """
+    try:
+        from ranking.session_parser import SessionLogParser
+
+        # Get project path from environment
+        import os
+        project_path = os.environ.get('CODEBASE_ROOT', '/home/corey/aOa')
+
+        parser = SessionLogParser(project_path)
+        token_stats = parser.get_token_usage()
+
+        return jsonify(token_stats)
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1659,8 +2152,9 @@ def read_file_snippet(file_path: str, max_lines: int = 20) -> str:
 # Ranking API - Predictive File Scoring
 # ============================================================================
 
-# Global scorer instance
+# Global scorer and tuner instances
 scorer = None
+tuner = None  # Phase 4: Thompson Sampling weight tuner
 
 
 @app.route('/rank')
@@ -2033,6 +2527,18 @@ def context_search():
             'keywords': []
         }), 400
 
+    # Step 1.5: Check cache (normalized keyword key)
+    cache_key = f"aoa:context:{':'.join(sorted(keywords))}"
+    try:
+        cached = scorer.redis.client.get(cache_key)
+        if cached:
+            cached_result = json.loads(cached)
+            cached_result['cached'] = True
+            cached_result['ms'] = round((time.time() - start) * 1000, 2)
+            return jsonify(cached_result)
+    except Exception:
+        pass  # Cache miss or error, continue
+
     # Step 2: Map keywords to tags
     tags_matched = map_keywords_to_tags(keywords)
 
@@ -2103,14 +2609,31 @@ def context_search():
     files.sort(key=lambda x: x['confidence'], reverse=True)
     files = files[:limit]
 
-    return jsonify({
+    # Build response
+    result = {
         'intent': intent,
         'keywords': keywords,
         'tags_matched': tags_matched,
         'files': files,
         'trigger_file': trigger_file if trigger_file else None,
-        'ms': round((time.time() - start) * 1000, 2)
-    })
+        'cached': False
+    }
+
+    # Cache result (1 hour TTL, skip snippets for cache efficiency)
+    try:
+        cache_data = {
+            'intent': intent,
+            'keywords': keywords,
+            'tags_matched': tags_matched,
+            'files': [{'path': f['path'], 'confidence': f['confidence']} for f in files],
+            'trigger_file': trigger_file if trigger_file else None
+        }
+        scorer.redis.client.setex(cache_key, 3600, json.dumps(cache_data))
+    except Exception:
+        pass  # Cache write failure is non-fatal
+
+    result['ms'] = round((time.time() - start) * 1000, 2)
+    return jsonify(result)
 
 
 # ============================================================================
@@ -2118,7 +2641,7 @@ def context_search():
 # ============================================================================
 
 def main():
-    global manager, intent_index, scorer
+    global manager, intent_index, scorer, tuner
 
     codebase_root = os.environ.get('CODEBASE_ROOT', '.')
     repos_root = os.environ.get('REPOS_ROOT', './repos')
@@ -2132,14 +2655,18 @@ def main():
     intent_index = IntentIndex()
     print("Intent index initialized")
 
-    # Initialize ranking scorer
+    # Initialize ranking scorer and weight tuner
     if RANKING_AVAILABLE:
         scorer = Scorer()
         if scorer.redis.ping():
             print("Ranking scorer initialized (Redis connected)")
+            # Phase 4: Initialize weight tuner
+            tuner = WeightTuner(scorer.redis)
+            print("Weight tuner initialized (8 arms)")
         else:
             print("Ranking scorer initialized (Redis not available)")
             scorer = None
+            tuner = None
     else:
         print("Ranking module not available")
     print(f"Local codebase: {codebase_root}")

@@ -3,7 +3,7 @@
 aOa Intent Summary - UserPromptSubmit Hook
 
 Shows branded intent summary when user submits a prompt.
-Output: ⚡ AOA │ 136 intents │ 16 tags │ 34.0ms │ editing python searching
+Output: ⚡ aOa │ 136 intents │ 16 tags │ 34.0ms │ editing python searching
 """
 
 import sys

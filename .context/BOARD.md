@@ -1,6 +1,6 @@
 # aOa Context Intelligence - Work Board
 
-> **Updated**: 2025-12-23 (Session 04) | **Phase**: 2 - Predictive Prefetch
+> **Updated**: 2025-12-25 (Session 08) | **Phase**: 4 - Weight Optimization
 > **Goal**: Transform aOa from search tool to predictive prefetch (90% accuracy)
 > **Strategic Review**: See `.context/details/strategic-board-refresh.md`
 
@@ -41,7 +41,7 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 
 | # | Task | Expected Output | Solution Pattern | Status | C | R |
 |---|------|-----------------|------------------|--------|---|---|
-| P3-003 | Pattern-based keyword extraction | Extract keywords from intent | Reuse INTENT_PATTERNS from hooks | Ready | 🟢 | ✓ |
+| P4-006 | Achieve 90% accuracy | Hit@5 >= 90% | Progressive tuning via data collection | Active | 🟢 | - |
 
 ---
 
@@ -93,10 +93,10 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 |---|------|-----------------|------------------|------|--------|---|---|
 | P3-001 | Session log parser | Parse ~/.claude/projects/ JSONL | Extract Read events with timestamps | P2-006 | ✅ | 🟢 | ✓ |
 | P3-002 | Transition matrix builder | P(file_B \| file_A read) probabilities | Count transitions in Redis | P3-001 | ✅ | 🟢 | ✓ |
-| P3-003 | Pattern-based keyword extraction | Extract keywords from intent | Reuse INTENT_PATTERNS from hooks | - | Ready | 🟢 | ✓ |
-| P3-004 | Create /context endpoint | `POST /context` returns files+snippets | Keywords + transitions + tags | P3-002 | Queued | 🟢 | ✓ |
-| P3-005 | Add `aoa context` CLI | `aoa context "fix auth bug"` | CLI wrapper for /context | P3-004 | Queued | 🟢 | - |
-| P3-006 | Caching layer | Cache common intents | Redis normalized keyword keys, 1hr TTL | P3-004 | Queued | 🟢 | ✓ |
+| P3-003 | Pattern-based keyword extraction | Extract keywords from intent | Reuse INTENT_PATTERNS from hooks | - | ✅ | 🟢 | ✓ |
+| P3-004 | Create /context endpoint | `POST /context` returns files+snippets | Keywords + transitions + tags | P3-002 | ✅ | 🟢 | ✓ |
+| P3-005 | Add `aoa context` CLI | `aoa context "fix auth bug"` | CLI wrapper for /context | P3-004 | ✅ | 🟢 | - |
+| P3-006 | Caching layer | Cache common intents | Redis normalized keyword keys, 1hr TTL | P3-004 | ✅ | 🟢 | ✓ |
 
 ---
 
@@ -109,12 +109,12 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 
 | # | Task | Expected Output | Solution Pattern | Deps | Status | C | R |
 |---|------|-----------------|------------------|------|--------|---|---|
-| P4-001 | Rolling hit rate calculation | Hit@5 over 24h window | Redis sorted sets, real-time correlation | P2-006 | Queued | 🟢 | ✓ |
-| P4-002 | Thompson Sampling tuner | 8 weight configurations | Beta distributions per arm | P4-001 | Queued | 🟢 | ✓ |
-| P4-003 | `/metrics` endpoint | Show accuracy + savings | Rolling metrics from Redis | P4-001 | Queued | 🟢 | ✓ |
-| P4-004 | Token cost tracking | Prove $ savings from predictions | Extract from session logs | P3-001 | Queued | 🟢 | ✓ |
-| P4-005 | `aoa metrics` CLI | View accuracy in terminal | Sparklines + ASCII viz | P4-003 | Queued | 🟢 | ✓ |
-| P4-006 | Achieve 90% accuracy | Hit@5 >= 90% | Progressive tuning: 70% -> 80% -> 90% | P4-002 | Queued | 🟢 | ✓ |
+| P4-001 | Rolling hit rate calculation | Hit@5 over 24h window | Redis ZSET, /predict/stats, /predict/finalize | P2-006 | ✅ | 🟢 | ✓ |
+| P4-002 | Thompson Sampling tuner | 8 weight configurations | WeightTuner class, 5 endpoints | P4-001 | ✅ | 🟢 | ✓ |
+| P4-003 | `/metrics` endpoint | Show accuracy + savings | Unified dashboard aggregating all metrics | P4-001 | ✅ | 🟢 | ✓ |
+| P4-004 | Token cost tracking | Prove $ savings from predictions | get_token_usage(), /metrics/tokens | P3-001 | ✅ | 🟢 | ✓ |
+| P4-005 | `aoa metrics` CLI | View accuracy in terminal | Progress bar + token dashboard | P4-003 | ✅ | 🟢 | ✓ |
+| P4-006 | Achieve 90% accuracy | Hit@5 >= 90% | Ongoing data collection + tuner learning | P4-002 | Active | 🟢 | - |
 
 ---
 
@@ -124,8 +124,8 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 |-------|-------|--------|------------|----------------|
 | 1 | Redis Scoring Engine | ✅ Complete | - | /rank returns ranked files (6/6 rubrics) |
 | 2 | Prefetch + Correlation | ✅ Complete | - | 7/7 tasks done, 2/6 benchmark tests pass |
-| 3 | Transition Model | Ready | - | Hit@5 > 70% from learned patterns |
-| 4 | Weight Optimization | Queued | Phase 3 | 90% Hit@5 + token savings visible |
+| 3 | Transition Model | ✅ Complete | - | 6/6 tasks done, /context + CLI + caching |
+| 4 | Weight Optimization | 5/6 Complete | - | 90% Hit@5 + token savings visible |
 
 ---
 
@@ -148,8 +148,17 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 | R4 | Strategic log correlation | session_id/tool_use_id linkage | 2025-12-23 |
 | R5 | Strategic hidden insights | Token economics, 15 use cases | 2025-12-23 |
 | R6 | Strategic board refresh | Enhanced roadmap with insights | 2025-12-23 |
-| P3-001 | Session log parser | session_parser.py parses 49 sessions, 165 reads | 2025-12-23 |
-| P3-002 | Transition matrix builder | 57 source files, 94 transitions in Redis | 2025-12-23 |
+| P3-001 | Session log parser | session_parser.py parses 49 sessions, 165 reads | 2025-12-24 |
+| P3-002 | Transition matrix builder | 57 source files, 94 transitions in Redis | 2025-12-24 |
+| P3-003 | Keyword extraction | extract_keywords() + INTENT_PATTERNS | 2025-12-24 |
+| P3-004 | /context endpoint | POST /context returns files+snippets | 2025-12-24 |
+| P3-005 | aoa context CLI | `aoa context "intent"` and `aoa ctx` | 2025-12-24 |
+| P3-006 | Caching layer | 1hr TTL, normalized keywords, 30x speedup | 2025-12-24 |
+| P4-001 | Rolling hit rate | Redis ZSET, /predict/stats, /predict/finalize | 2025-12-25 |
+| P4-002 | Thompson Sampling | WeightTuner class, 8 arms, 5 endpoints | 2025-12-25 |
+| P4-003 | /metrics endpoint | Unified dashboard: Hit@5, trend, tuner stats | 2025-12-25 |
+| P4-004 | Token cost tracking | get_token_usage(), $2,378 saved (99.55% cache) | 2025-12-25 |
+| P4-005 | aoa metrics CLI | `aoa metrics` + `aoa metrics tokens` | 2025-12-25 |
 
 ---
 

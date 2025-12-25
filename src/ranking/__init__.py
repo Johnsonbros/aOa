@@ -6,16 +6,24 @@ Provides file ranking based on:
 - Frequency: How often is the file accessed?
 - Tag Affinity: Which tags are associated with the file?
 
+Phase 4 adds:
+- WeightTuner: Thompson Sampling for weight optimization
+
 Usage:
-    from ranking import Scorer
+    from ranking import Scorer, WeightTuner
 
     scorer = Scorer()
-    scorer.record_access("/src/api/routes.py", tags=["api", "python"])
+    tuner = WeightTuner(scorer.redis)
 
-    top_files = scorer.get_ranked_files(tags=["api"], limit=10)
+    # Get optimized weights
+    weights = tuner.select_weights()
+    scorer.weights = weights
+
+    # Record feedback after prediction evaluation
+    tuner.record_feedback(hit=True)
 """
 
 from .redis_client import RedisClient
-from .scorer import Scorer
+from .scorer import Scorer, WeightTuner
 
-__all__ = ['RedisClient', 'Scorer']
+__all__ = ['RedisClient', 'Scorer', 'WeightTuner']
