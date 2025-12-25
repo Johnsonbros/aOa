@@ -626,6 +626,140 @@ cmd_intent_stats() {
 # Utility Commands
 # =============================================================================
 
+cmd_services() {
+    echo -e "${CYAN}${BOLD}"
+    cat << 'EOF'
+╔══════════════════════════════════════════════════════════════════════╗
+║                         aOa Service Map                              ║
+╠══════════════════════════════════════════════════════════════════════╣
+║                                                                      ║
+║  ┌─────────────────────────────────────────────────────────────┐    ║
+║  │                     GATEWAY (:8080)                         │    ║
+║  │              Single entry point for all services            │    ║
+║  └─────────────────────────────────────────────────────────────┘    ║
+║                              │                                       ║
+║          ┌───────────────────┼───────────────────┐                  ║
+║          ▼                   ▼                   ▼                  ║
+║  ┌───────────────┐   ┌───────────────┐   ┌───────────────┐         ║
+║  │    INDEX      │   │    STATUS     │   │   GIT-PROXY   │         ║
+║  │    :9999      │   │    :9998      │   │    :9997      │         ║
+║  │               │   │               │   │               │         ║
+║  │ • Symbol      │   │ • Sessions    │   │ • Clone repos │         ║
+║  │ • Ranking     │   │ • History     │   │ • Allowlist   │         ║
+║  │ • Intent      │   │ • Metrics     │   │               │         ║
+║  │ • Memory      │   │               │   │               │         ║
+║  │ • Tuner       │   │               │   │               │         ║
+║  └───────────────┘   └───────────────┘   └───────────────┘         ║
+║          │                                                          ║
+║          ▼                                                          ║
+║  ┌───────────────┐                                                  ║
+║  │    REDIS      │                                                  ║
+║  │    :6379      │                                                  ║
+║  │               │                                                  ║
+║  │ • Scores      │                                                  ║
+║  │ • Transitions │                                                  ║
+║  │ • Predictions │                                                  ║
+║  └───────────────┘                                                  ║
+║                                                                      ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  CORE CAPABILITIES                                                   ║
+╠══════════════════════════════════════════════════════════════════════╣
+║                                                                      ║
+║  ⚡ SEARCH         O(1) symbol lookup across codebase                ║
+║     aoa search <term>                                                ║
+║                                                                      ║
+║  🎯 INTENT         Track tool calls, extract behavior patterns       ║
+║     aoa intent recent                                                ║
+║                                                                      ║
+║  🧠 MEMORY         Dynamic working context for LLMs                  ║
+║     aoa memory [prose|compact|structured]                            ║
+║                                                                      ║
+║  📊 METRICS        Prediction accuracy, token savings                ║
+║     aoa health                                                       ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+EOF
+    echo -e "${NC}"
+
+    # Show live stats
+    echo -e "${BOLD}Live Status${NC}"
+    echo ""
+
+    # Health check
+    local index_ok=false
+    local status_ok=false
+    local redis_ok=false
+
+    curl -s --connect-timeout 1 "http://localhost:8080/health" > /dev/null 2>&1 && index_ok=true
+    curl -s --connect-timeout 1 "http://localhost:8080/status" > /dev/null 2>&1 && status_ok=true
+    docker exec aoa-redis-1 redis-cli ping > /dev/null 2>&1 && redis_ok=true
+
+    if $index_ok; then
+        echo -e "  Index:  ${GREEN}✓${NC} Running"
+    else
+        echo -e "  Index:  ${RED}✗${NC} Not responding"
+    fi
+
+    if $status_ok; then
+        echo -e "  Status: ${GREEN}✓${NC} Running"
+    else
+        echo -e "  Status: ${RED}✗${NC} Not responding"
+    fi
+
+    if $redis_ok; then
+        echo -e "  Redis:  ${GREEN}✓${NC} Connected"
+    else
+        echo -e "  Redis:  ${RED}✗${NC} Not connected"
+    fi
+
+    echo ""
+
+    # Quick stats
+    local memory_result=$(curl -s "http://localhost:8080/memory?format=compact" 2>/dev/null)
+    if [ -n "$memory_result" ]; then
+        local files=$(echo "$memory_result" | jq -r '.files_analyzed' 2>/dev/null)
+        local ms=$(echo "$memory_result" | jq -r '.ms' 2>/dev/null)
+        echo -e "  Memory: ${files} active files, ${GREEN}${ms}ms${NC} latency"
+    fi
+
+    local health_result=$(curl -s "http://localhost:8080/health" 2>/dev/null)
+    if [ -n "$health_result" ]; then
+        local symbols=$(echo "$health_result" | jq -r '.symbols' 2>/dev/null)
+        local idx_files=$(echo "$health_result" | jq -r '.files' 2>/dev/null)
+        echo -e "  Index:  ${idx_files} files, ${symbols} symbols"
+    fi
+}
+
+cmd_memory() {
+    local format="${1:-prose}"
+
+    case "$format" in
+        -c|--compact|compact)
+            format="compact"
+            ;;
+        -s|--structured|structured|json)
+            format="structured"
+            ;;
+        -p|--prose|prose|*)
+            format="prose"
+            ;;
+    esac
+
+    local result=$(curl -s "http://localhost:8080/memory?format=${format}")
+
+    if [ "$format" = "structured" ]; then
+        echo "$result" | jq .
+    else
+        local memory=$(echo "$result" | jq -r '.memory')
+        local ms=$(echo "$result" | jq -r '.ms')
+        local files=$(echo "$result" | jq -r '.files_analyzed')
+
+        echo -e "${CYAN}${BOLD}⚡ aOa Working Memory${NC} ${DIM}│${NC} ${files} files ${DIM}│${NC} ${GREEN}${ms}ms${NC}"
+        echo ""
+        echo "$memory"
+    fi
+}
+
 cmd_health() {
     echo -e "${BOLD}aOa Services${NC}"
     echo ""
@@ -790,6 +924,8 @@ KNOWLEDGE REPOS (isolated reference code)
 
 SYSTEM
   health                 Check all services
+  memory [format]        Dynamic working context (prose|compact|structured)
+  services               Visual service map with live status
 
 EXAMPLES
   # Local project search (default)
@@ -846,6 +982,8 @@ main() {
 
         # System
         health)     cmd_health ;;
+        memory|mem) cmd_memory "$@" ;;
+        services|svc|map) cmd_services ;;
         help|--help|-h) cmd_help ;;
 
         *)

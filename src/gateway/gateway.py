@@ -93,6 +93,9 @@ ROUTES = {
     # Context API (Phase 3)
     "/context": ("index", "/context"),
 
+    # Memory API (Phase 5) - Dynamic working context
+    "/memory": ("index", "/memory"),
+
     # Status service routes
     "/status": ("status", "/status"),
     "/status/json": ("status", "/status/json"),

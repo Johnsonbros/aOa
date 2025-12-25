@@ -2637,6 +2637,276 @@ def context_search():
 
 
 # ============================================================================
+# Memory API - Dynamic Working Context (Phase 5)
+# ============================================================================
+
+# Domain patterns for prose generation
+DOMAIN_PATTERNS = {
+    r'auth|login|session|oauth': 'authentication',
+    r'api|endpoint|route|handler': 'API layer',
+    r'test|spec|mock': 'testing',
+    r'config|settings|env': 'configuration',
+    r'index|search|query': 'search infrastructure',
+    r'rank|score|predict': 'ranking system',
+    r'hook|capture|intent': 'intent tracking',
+    r'gate|proxy|route': 'gateway',
+    r'redis|cache|store': 'data layer',
+    r'doc|readme|md': 'documentation',
+}
+
+
+def time_band(seconds_ago: float) -> str:
+    """Convert seconds ago to human-readable time band."""
+    if seconds_ago < 60:
+        return "just now"
+    if seconds_ago < 180:
+        return "moments ago"
+    if seconds_ago < 600:
+        return f"{int(seconds_ago / 60)}m ago"
+    if seconds_ago < 1800:
+        return "recently"
+    if seconds_ago < 3600:
+        return "earlier this session"
+    return "earlier today"
+
+
+def confidence_phrase(score: float) -> str:
+    """Convert numeric confidence to natural phrase."""
+    if score > 0.8:
+        return "main focus"
+    if score > 0.6:
+        return "actively working on"
+    if score > 0.4:
+        return "recently touched"
+    return "in context"
+
+
+def detect_domain(file_path: str) -> str:
+    """Detect domain from file path."""
+    path_lower = file_path.lower()
+    for pattern, domain in DOMAIN_PATTERNS.items():
+        if re.search(pattern, path_lower):
+            return domain
+    # Fallback to directory name
+    parts = file_path.split('/')
+    if len(parts) > 1:
+        return parts[-2] if parts[-2] not in ('src', 'lib', 'app') else parts[-1].split('.')[0]
+    return "general"
+
+
+def get_recent_tags(limit: int = 5) -> List[str]:
+    """Get recent intent tags."""
+    try:
+        stats = intent_index.get_stats()
+        tags = stats.get('tags', {})
+        # Sort by count, take top N
+        sorted_tags = sorted(tags.items(), key=lambda x: x[1], reverse=True)[:limit]
+        return [t[0].lstrip('#') for t, _ in sorted_tags]
+    except Exception:
+        return []
+
+
+@app.route('/memory')
+def get_memory():
+    """
+    Dynamic working memory - current context as LLM-readable prose.
+
+    Returns structured narrative of:
+    - Current focus (what you're working on)
+    - Active files (recently touched)
+    - Predicted next files
+    - Intent signals
+
+    Query params:
+        format: prose (default), structured, compact
+        window: time window in minutes (default 20)
+
+    Example response (prose):
+        ## Working Memory
+
+        You're currently focused on the ranking system, specifically the scorer.
+
+        **Active Files** (last 20 minutes):
+        - src/ranking/scorer.py (5 touches, 3m ago) - main focus
+        - src/index/indexer.py (2 touches, 12m ago) - actively working on
+
+        **Predicted Next**:
+        - src/ranking/redis_client.py (65% likely)
+
+        **Intent Signals**: #python, #editing, #search
+    """
+    start = time.time()
+
+    fmt = request.args.get('format', 'prose')
+    window_mins = int(request.args.get('window', 20))
+    window_secs = window_mins * 60
+
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({
+            'memory': 'Working memory unavailable (Redis not connected)',
+            'format': fmt,
+            'ms': round((time.time() - start) * 1000, 2)
+        })
+
+    try:
+        now = time.time()
+
+        # 1. Get recent files by recency
+        recent_files = scorer.get_top_files_by_recency(limit=20)
+
+        # Filter to window and enrich with data
+        active_files = []
+        for file_path, last_ts in recent_files:
+            age = now - last_ts
+            if age > window_secs:
+                continue
+
+            freq = scorer.get_frequency_score(file_path) or 0
+            active_files.append({
+                'path': file_path,
+                'last_access': last_ts,
+                'age_seconds': age,
+                'time_band': time_band(age),
+                'frequency': int(freq),
+                'domain': detect_domain(file_path),
+            })
+
+        # 2. Detect primary focus
+        focus_domain = "general"
+        focus_file = None
+        if active_files:
+            # Most frequent in window is likely focus
+            by_freq = sorted(active_files, key=lambda x: x['frequency'], reverse=True)
+            focus_file = by_freq[0]['path']
+            focus_domain = by_freq[0]['domain']
+
+        # 3. Get predictions for next files
+        predicted_next = []
+        if focus_file and SESSION_PARSER_AVAILABLE:
+            try:
+                # Get relative path for transition lookup
+                rel_path = focus_file
+                if rel_path.startswith('/home/corey/aOa/'):
+                    rel_path = rel_path[len('/home/corey/aOa/'):]
+
+                preds = SessionLogParser.predict_next(scorer.redis, rel_path, limit=3)
+                for pred_file, prob in preds:
+                    predicted_next.append({
+                        'path': pred_file,
+                        'probability': round(prob * 100),
+                    })
+            except Exception:
+                pass
+
+        # 4. Get recent tags
+        recent_tags = get_recent_tags(5)
+
+        # 5. Calculate mode (read/write ratio from recent intents)
+        mode = "exploring"
+        try:
+            records = intent_index.recent(limit=20)
+            if records:
+                writes = sum(1 for r in records if r.get('tool', '').lower() in ('write', 'edit', 'notebookedit'))
+                reads = sum(1 for r in records if r.get('tool', '').lower() in ('read', 'glob', 'grep'))
+                if writes > reads:
+                    mode = "writing"
+                elif reads > writes * 2:
+                    mode = "reading"
+                else:
+                    mode = "mixed"
+        except Exception:
+            pass
+
+        # Generate output based on format
+        if fmt == 'compact':
+            # Minimal token format
+            file_list = ','.join(f"{os.path.basename(f['path'])}({f['frequency']}x,{f['time_band']})"
+                                 for f in active_files[:5])
+            pred_list = ','.join(f"{os.path.basename(p['path'])}({p['probability']}%)"
+                                 for p in predicted_next)
+            tag_list = ','.join(recent_tags)
+
+            memory = f"FOCUS: {os.path.basename(focus_file or 'none')} ({focus_domain})\n"
+            memory += f"ACTIVE: {file_list}\n"
+            if pred_list:
+                memory += f"NEXT: {pred_list}\n"
+            memory += f"TAGS: {tag_list}\n"
+            memory += f"MODE: {mode}"
+
+        elif fmt == 'structured':
+            # JSON with explanations
+            return jsonify({
+                'focus': {
+                    'domain': focus_domain,
+                    'file': focus_file,
+                    'explanation': f"Based on highest frequency in last {window_mins}m"
+                },
+                'active_files': [{
+                    'path': f['path'],
+                    'frequency': f['frequency'],
+                    'recency': f['time_band'],
+                    'role': confidence_phrase(f['frequency'] / 10)
+                } for f in active_files[:5]],
+                'predicted_next': [{
+                    'path': p['path'],
+                    'probability': p['probability'],
+                    'why': 'frequently follows current focus'
+                } for p in predicted_next],
+                'intent_signals': recent_tags,
+                'mode': mode,
+                'window_minutes': window_mins,
+                'ms': round((time.time() - start) * 1000, 2)
+            })
+
+        else:
+            # Prose format (default)
+            lines = ["## Working Memory", ""]
+
+            if focus_file:
+                lines.append(f"You're currently focused on **{focus_domain}**, specifically `{os.path.basename(focus_file)}`.")
+            else:
+                lines.append("No recent file activity detected.")
+
+            lines.append("")
+
+            if active_files:
+                lines.append(f"**Active Files** (last {window_mins} minutes):")
+                for f in active_files[:5]:
+                    role = confidence_phrase(f['frequency'] / 10)
+                    lines.append(f"- `{f['path']}` ({f['frequency']}x, {f['time_band']}) - {role}")
+                lines.append("")
+
+            if predicted_next:
+                lines.append("**Predicted Next**:")
+                for p in predicted_next:
+                    lines.append(f"- `{p['path']}` ({p['probability']}% likely)")
+                lines.append("")
+
+            if recent_tags:
+                tag_str = ', '.join(f"#{t}" for t in recent_tags)
+                lines.append(f"**Intent Signals**: {tag_str}")
+                lines.append("")
+
+            lines.append(f"**Mode**: {mode}")
+
+            memory = '\n'.join(lines)
+
+        return jsonify({
+            'memory': memory,
+            'format': fmt,
+            'files_analyzed': len(active_files),
+            'ms': round((time.time() - start) * 1000, 2)
+        })
+
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'memory': '',
+            'ms': round((time.time() - start) * 1000, 2)
+        }), 500
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
