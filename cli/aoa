@@ -724,8 +724,8 @@ EOF
 
     local health_result=$(curl -s "http://localhost:8080/health" 2>/dev/null)
     if [ -n "$health_result" ]; then
-        local symbols=$(echo "$health_result" | jq -r '.symbols' 2>/dev/null)
-        local idx_files=$(echo "$health_result" | jq -r '.files' 2>/dev/null)
+        local symbols=$(echo "$health_result" | jq -r '.local.symbols' 2>/dev/null)
+        local idx_files=$(echo "$health_result" | jq -r '.local.files' 2>/dev/null)
         echo -e "  Index:  ${idx_files} files, ${symbols} symbols"
     fi
 }
