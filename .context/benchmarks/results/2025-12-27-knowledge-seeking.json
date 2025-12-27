@@ -1,0 +1,7 @@
+{
+    "benchmark": "knowledge-seeking-v2",
+    "date": "2025-12-27",
+    "traditional": { "calls": 18, "tokens": 64160, "found": 4 },
+    "aoa": { "calls": 14, "tokens": 23870, "found": 3, "top1": 3 },
+    "savings": { "calls_pct": 27, "tokens_pct": 63 }
+}

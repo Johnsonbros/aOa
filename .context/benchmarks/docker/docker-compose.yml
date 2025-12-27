@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  lsp:
+    build:
+      context: .
+      dockerfile: Dockerfile.lsp
+    volumes:
+      - ../../../src:/workspace/src:ro
+      - ../../../CLAUDE.md:/workspace/CLAUDE.md:ro
+    container_name: aoa-lsp-benchmark

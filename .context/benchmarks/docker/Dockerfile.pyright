@@ -1,0 +1,7 @@
+FROM node:20-slim
+
+RUN npm install -g pyright
+RUN apt-get update && apt-get install -y python3 curl jq && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+CMD ["tail", "-f", "/dev/null"]
