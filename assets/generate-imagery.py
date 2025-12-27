@@ -20,8 +20,8 @@ from pathlib import Path
 # Load .env file if it exists
 def load_env():
     env_paths = [
-        Path(__file__).parent / ".env",           # assets/.env
-        Path(__file__).parent.parent / ".env",    # project root .env
+        Path(__file__).parent / ".env",
+        Path(__file__).parent.parent / ".env",
     ]
     for env_path in env_paths:
         if env_path.exists():
@@ -32,7 +32,7 @@ def load_env():
                         key, value = line.split('=', 1)
                         key = key.strip()
                         value = value.strip().strip('"').strip("'")
-                        if key not in os.environ:  # Don't override existing env
+                        if key not in os.environ:
                             os.environ[key] = value
             break
 
@@ -41,6 +41,8 @@ load_env()
 try:
     from google import genai
     from google.genai import types
+    import PIL.Image
+    from io import BytesIO
 except ImportError:
     print("Error: google-genai not installed")
     print("Run: pip install google-genai pillow")
@@ -49,138 +51,145 @@ except ImportError:
 OUTPUT_DIR = Path(__file__).parent / "generated"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Brand constants
-BRAND = """
-Brand: aOa (Angle of Attack)
-Colors: Electric cyan (#00D4FF), Hot orange (#FF6B35), Deep navy (#0A1628)
-Style: Sharp, fast, precise. Fighter jet HUD aesthetic. No clutter.
+# =============================================================================
+# Visual Storytelling: 3 Images, 1 Journey
+# =============================================================================
+#
+# 1. HERO - The Problem/Solution in one image
+#    "I want to be on the flat line, not the rising curve"
+#
+# 2. CONVERGENCE - Multiple methods, one answer
+#    "Many inputs flow into one calm, confident result"
+#
+# 3. STATUS - The outcome achieved
+#    "Everything is working. I can relax."
+# =============================================================================
+
+STYLE = """
+Overall Style & Mood:
+- Theme: Futuristic, high-tech, data-driven, speed, and intelligence
+- Aesthetic: Professional "award-winning ad campaign," clean, neon-glowing, dynamic
+- Background: Deep dark navy blue (#0A1628) with subtle faint textures like digital starfield, circuit patterns, or radiating light particles for depth without clutter
+
+Central Element:
+- Focal point: Prominent, glowing circular hub at center
+- Effect: Brightest element with intense electric cyan glow and radiating starburst/light-streak effect
+
+Connecting Lines (Vectors):
+- Style: Sharp, angular, dynamic - stylized "attack vectors" or energy beams cutting through space
+- Color: Electric cyan with bright neon glow
+
+Outer Nodes:
+- Layout: Radial pattern around center
+- Iconography: Minimalist, line-art style icons, glowing electric cyan
+- Clean, organized composition
+
+Color Palette:
+- Primary (Glow): Electric Cyan (#00D4FF)
+- Secondary (Background): Deep Navy Blue (#0A1628)
+- Tertiary (Accents): White or Pale Cyan (#E0FFFF)
+
+Effects:
+- Neon Bloom: All cyan elements have soft neon bloom/glow effect, light-emitting
+- Generous negative space, organized, not cluttered
+- Professional, polished, award-winning quality
+
+No text. No people. No logos.
 """
 
 PROMPTS = {
     "hero": {
         "prompt": f"""
-{BRAND}
-Create: Hero banner showing the concept of O(1) constant-time performance.
-Scene: A flat horizontal line (representing constant cost) versus an exponential curve rising steeply (representing traditional scaling).
-The flat line glows electric cyan. The rising curve fades to red/orange.
-Abstract, minimal, data visualization style.
-Deep navy background with subtle grid.
-No text, no people, no logos.
-Mood: Calm efficiency vs growing chaos.
+{STYLE}
+
+Create: Central hub with 5 attack vectors radiating outward.
+
+Scene:
+- CENTER: Prominent glowing circular hub - the O(1) core. Brightest element with intense electric cyan glow and radiating starburst effect. This represents speed and intelligence.
+- VECTORS: 5 sharp, angular energy beams cutting outward from center to 5 outer nodes. Stylized attack vectors, not simple lines.
+- OUTER NODES: 5 minimalist line-art icons arranged radially:
+  1. Search (magnifying glass icon)
+  2. Intent (brain/neural icon)
+  3. Knowledge (database icon)
+  4. Ranking (stacked bars icon)
+  5. Prediction (forward arrow icon)
+
+Each node glows with neon bloom effect. All connected by dynamic cyan energy beams.
 """,
         "aspect": "16:9",
         "filename": "hero.png"
     },
 
-    "bigo": {
+    "convergence": {
         "prompt": f"""
-{BRAND}
-Create: Abstract visualization of Big O notation - O(1) constant time.
-Scene: Multiple paths/lines starting from one point.
-Most lines curve upward exponentially (bad - O(n), O(n^2)).
-ONE line stays perfectly flat and horizontal, glowing bright cyan (good - O(1)).
-Deep navy background.
-Style: Mathematical, clean, like a computer science textbook illustration made beautiful.
-No text. No people.
-Mood: One path is clearly the winner.
+{STYLE}
+
+Create: Five attack vectors converging to one answer.
+
+Scene:
+- 5 sharp angular energy beams approaching from different directions
+- Each beam slightly different shade of cyan spectrum
+- All converging precisely on a single bright focal point at center
+- The convergence point has intense white/gold glow - the confident answer
+- This is resolution, not explosion. Calm precision.
+- Radiating light particles around the convergence point
+
+The feeling: multiple attack angles, one confident result.
 """,
         "aspect": "4:3",
-        "filename": "bigo.png"
-    },
-
-    "angle": {
-        "prompt": f"""
-{BRAND}
-Create: Visualization of precision targeting - finding the RIGHT answer.
-Scene: Multiple faint target circles, but ONE is bright cyan with a perfect bullseye hit.
-Geometric, angular composition suggesting a calculated approach angle.
-Faint trajectory lines showing the path to the target.
-Deep navy background.
-Style: Precision engineering, targeting system aesthetic.
-No text, no people.
-Mood: Not just fast - accurate. The right answer, first try.
-""",
-        "aspect": "4:3",
-        "filename": "angle.png"
-    },
-
-    "attack": {
-        "prompt": f"""
-{BRAND}
-Create: Visualization of multiple attack vectors converging on a target.
-Scene: FIVE distinct groups of lines/paths approaching a central glowing point from different angles.
-Each group is a different shade (cyan spectrum), representing 5 attack groups.
-The paths converge precisely on the target.
-Deep navy background with subtle depth.
-Style: Strategic, military planning aesthetic. Like attack vectors on a tactical display.
-No text, no people.
-Mood: Five attack groups. Fifteen methods. One confident result.
-""",
-        "aspect": "4:3",
-        "filename": "attack.png"
-    },
-
-    "scaling": {
-        "prompt": f"""
-{BRAND}
-Create: Before/after comparison of cost scaling.
-Scene: Split composition.
-LEFT: An exponential curve rising steeply, with stacked coins/cost symbols growing larger. Red/orange tones. Label area for "100K files".
-RIGHT: A flat horizontal line with consistent small coins. Cyan/green tones. Same label area.
-Sharp diagonal dividing line.
-Deep navy background.
-Style: Infographic, data visualization.
-No text (we add later). No people.
-Mood: Compounding cost vs flat cost.
-""",
-        "aspect": "16:9",
-        "filename": "scaling.png"
+        "filename": "convergence.png"
     },
 
     "status": {
         "prompt": f"""
-{BRAND}
-Create: A futuristic status dashboard showing O(1) performance.
-Scene: A horizontal bar with "O(1)" concept - flat line, instant response.
-Five indicator light groups (representing 5 attack groups) all glowing green.
-Floating metrics showing speed and accuracy.
-Electric cyan and green on deep navy.
-Style: Fighter jet cockpit HUD, instrument panel.
-No readable text. No people.
-Mood: All systems optimal. Constant time. Always.
+{STYLE}
+
+Create: Optimal status dashboard - everything working.
+
+Scene:
+- Clean horizontal composition
+- One flat glowing cyan line across center (the O(1) promise kept)
+- 5 small indicator nodes below, all glowing bright green (#00FF88)
+- Subtle starburst/radial glow from each indicator
+- Generous negative space, not cluttered
+- Faint circuit pattern texture in background
+
+This is the outcome state - all systems optimal, flat cost, confident.
+HUD aesthetic, professional dashboard feel.
 """,
-        "aspect": "3:1",
+        "aspect": "16:9",
         "filename": "status.png"
     }
 }
 
 
 def generate_image(client, name: str, config: dict) -> bool:
-    """Generate a single image using Gemini."""
+    """Generate a single image using Gemini Pro Image."""
     print(f"Generating {name}...")
+
+    # Supported: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
+    aspect = config.get("aspect", "4:3")
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
-            contents=[config["prompt"]],
+            model="gemini-3-pro-image-preview",
+            contents=config["prompt"],
             config=types.GenerateContentConfig(
-                response_modalities=["IMAGE", "TEXT"],
+                response_modalities=["IMAGE"],
+                image_config=types.ImageConfig(
+                    aspect_ratio=aspect,
+                    image_size="1K"
+                ),
             )
         )
 
         for part in response.candidates[0].content.parts:
             if hasattr(part, 'inline_data') and part.inline_data:
-                # Save the image
+                image = PIL.Image.open(BytesIO(part.inline_data.data))
                 output_path = OUTPUT_DIR / config["filename"]
-                with open(output_path, "wb") as f:
-                    f.write(part.inline_data.data)
-                print(f"  Saved: {output_path}")
+                image.save(output_path)
+                print(f"  Saved: {output_path} ({image.size[0]}x{image.size[1]})")
                 return True
-
-        # Check for text response (might indicate an issue)
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, 'text') and part.text:
-                print(f"  Response: {part.text[:200]}")
 
         print(f"  Warning: No image generated for {name}")
         return False
@@ -193,18 +202,17 @@ def generate_image(client, name: str, config: dict) -> bool:
 def main():
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("Error: GEMINI_API_KEY environment variable not set")
-        print("Get one at: https://aistudio.google.com/app/apikey")
+        print("Error: GEMINI_API_KEY not set")
+        print("Set in environment or in .env file")
         sys.exit(1)
 
     client = genai.Client(api_key=api_key)
 
-    # Parse arguments
     if len(sys.argv) > 1:
         arg = sys.argv[1]
 
         if arg == "--list":
-            print("Available images:")
+            print("Available images (3 for cohesive story):")
             for name, config in PROMPTS.items():
                 print(f"  {name:12} -> {config['filename']} ({config['aspect']})")
             return
@@ -222,7 +230,7 @@ def main():
         sys.exit(1)
 
     # Generate all
-    print(f"Generating all {len(PROMPTS)} images...")
+    print(f"Generating {len(PROMPTS)} images for visual story...")
     print(f"Output: {OUTPUT_DIR}")
     print()
 

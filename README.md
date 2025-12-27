@@ -1,55 +1,76 @@
-# aOa - Your Next File, Before You Ask
+# aOa - Angle O(1)f Attack
 
-> **Cut your Claude costs by 2/3. Ship code 3x faster.**
+![The O(1) Advantage](assets/generated/hero.png)
 
-Claude Code wastes tokens searching. aOa learns what you need and has it ready.
-
----
-
-## What You Actually Get
-
-| Outcome | Reality |
-|---------|---------|
-| **68% fewer tokens** | Stop paying for grep loops |
-| **Your files, predicted** | Context appears before you ask |
-| **100% accuracy on knowledge** | Right answer, first try |
-| **Instant search** | Find anything in <5ms |
-| **Claude learns you** | Gets smarter every session |
+> **Same cost for 100 files or 100,000.**
 
 ---
 
-## The Real Problem
+## The Problem You Know Too Well
 
-Watch any AI coding session:
+Watch any AI coding session. This happens every time:
 
 ```
-Claude: "Let me search for authentication..."     # 200 tokens
-Claude: "Let me also check login..."              # 200 tokens
-Claude: "I should look at session handling..."    # 200 tokens
-Claude: "Let me read these 8 files..."            # 6,000 tokens
-Claude: "Now I understand the pattern."           # Finally.
+Claude: "Let me search for authentication..."
+Claude: "Let me also check login..."
+Claude: "I should look at session handling..."
+Claude: "Let me read these 8 files..."
+Claude: "Now I understand the pattern."
 ```
 
-**6,600 tokens** to find what was obvious to you from the start.
+**6,600 tokens.** Just to find what was obvious to you from the start.
+
+The cost compounds. Bigger codebases mean more searching. More searching means more tokens. More tokens means more money. The orange line keeps rising.
 
 ---
 
-## What Changes With aOa
+## What If It Didn't Have To?
 
 ```
 You: "Fix the auth bug"
-aOa: [Already predicted: auth.py, session.py, middleware.py]
-Claude: "I see the auth files. The bug is on line 47."
+aOa: [Already loaded: auth.py, session.py, middleware.py]
+Claude: "I see the issue. Line 47."
 ```
 
-**150 tokens.** Same result. 97% savings.
+**150 tokens.** Same result.
+
+aOa learns what you need and has it ready. The cost stays flat—whether you have 100 files or 100,000.
+
+---
+
+## How It Works
+
+![Five methods, one answer](assets/generated/convergence.png)
+
+aOa uses **5 attack groups** with **15+ methods** to find exactly what you need:
+
+| Group | What It Does |
+|-------|--------------|
+| **Search** | O(1) symbol lookup, multi-term ranking, pattern matching |
+| **Intent** | Learns from every tool call, builds tag affinity |
+| **Knowledge** | Searches external repos without polluting your results |
+| **Ranking** | Recency, frequency, filename matching, transitions |
+| **Prediction** | Prefetches files before you ask |
+
+All of these converge into **one confident answer**.
+
+---
+
+## The Numbers
+
+| Metric | Without aOa | With aOa | Savings |
+|--------|-------------|----------|---------|
+| Tool calls | 7 | 2 | 71% |
+| Tokens | 8,500 | 1,150 | **86%** |
+| Time | 2.6s | 54ms | 98% |
+| Accuracy | ~70% | **100%** | Perfect |
 
 ---
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/you/aOa && cd aOa
+git clone https://github.com/anthropics/aoa && cd aoa
 ./install.sh
 aoa health
 ```
@@ -58,7 +79,9 @@ That's it. aOa starts learning immediately.
 
 ---
 
-## How It Feels
+## The Outcome
+
+![All systems optimal](assets/generated/status.png)
 
 Your status line shows what's happening:
 
@@ -66,91 +89,7 @@ Your status line shows what's happening:
 ⚡ aOa 🟢 100% │ 136 intents │ 45ms │ editing python auth
 ```
 
-- **100%** = aOa's predictions are hitting
-- **136 intents** = Claude's learned 136 patterns from you
-- **45ms** = Time to predict your next files
-
-The more you use Claude, the smarter aOa gets.
-
----
-
-## Real Numbers
-
-From our benchmarks on production codebases:
-
-| Metric | Without aOa | With aOa | Savings |
-|--------|-------------|----------|---------|
-| Tool calls to find code | 7 | 2 | 71% |
-| Tokens consumed | 8,500 | 1,150 | **86%** |
-| Time to answer | 2.6s | 54ms | 98% |
-| Knowledge query accuracy | ~70% | **100%** | Perfect |
-
----
-
-## The Commands You'll Use
-
-```bash
-aoa search auth          # Find anything, instantly
-aoa search "auth login"  # Multi-term, ranked by relevance
-aoa why auth.py          # "Why did you predict this file?"
-aoa health               # Check everything's working
-```
-
----
-
-## How It Actually Works
-
-1. **Learn** - Every tool call teaches aOa your patterns
-2. **Rank** - Files scored by recency + frequency + intent
-3. **Predict** - When you type, relevant files appear automatically
-
-No configuration. No training. Just use Claude normally.
-
----
-
-## Trust & Transparency
-
-- All services run locally (Docker)
-- No data leaves your machine
-- Every prediction is explainable (`aoa why <file>`)
-- Open source, MIT licensed
-
----
-
-## Installation
-
-```bash
-# Clone
-git clone https://github.com/you/aOa
-cd aOa
-
-# Install (indexes your codebase)
-./install.sh
-
-# Verify
-aoa health
-```
-
-To index a different directory:
-```bash
-CODEBASE_PATH=/path/to/code ./install.sh
-```
-
----
-
-## FAQ
-
-**Does it work with any codebase?**
-Yes. Python, TypeScript, Go, Rust, whatever. aOa indexes symbols and learns patterns regardless of language.
-
-**How long until it's useful?**
-Immediately for search. After ~30 tool calls, predictions start hitting. After a few sessions, it knows your patterns.
-
-**What if predictions are wrong?**
-They get filtered out. You only see predictions above 60% confidence. Wrong predictions don't hurt—they just don't appear.
-
-**Does it slow Claude down?**
-No. Predictions happen in <50ms while you're typing. Claude never waits for aOa.
+The more you use Claude, the smarter aOa gets. Every tool call teaches it your patterns. Every session makes predictions more accurate.
 
 ---
 
@@ -158,9 +97,20 @@ No. Predictions happen in <50ms while you're typing. Claude never waits for aOa.
 
 **Angle O(1)f Attack**
 
-The O(1) is in the name. We shift the work from query time (where every millisecond costs tokens) to index time (where it's free).
+- **O** = Big O notation. O(1) constant time. Same cost regardless of size.
+- **Angle** = The right approach. Not just fast—accurate.
+- **Attack** = 5 groups, 15+ methods, converging on one answer.
 
 ---
 
-**Your next file, before you ask.**
+## Trust
+
+- Runs locally (Docker)
+- No data leaves your machine
+- Every prediction is explainable (`aoa why <file>`)
+- Open source, MIT licensed
+
+---
+
+**The flat line wins.**
 
