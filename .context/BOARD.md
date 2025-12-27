@@ -1,6 +1,6 @@
 # aOa Context Intelligence - Work Board
 
-> **Updated**: 2025-12-27 (Session 11) | **Phase**: 4 - Weight Optimization
+> **Updated**: 2025-12-27 (Session 12) | **Phase**: 4 - Weight Optimization
 > **Goal**: Transform aOa from search tool to predictive prefetch (90% accuracy)
 > **Strategic Review**: See `.context/details/strategic-board-refresh.md`
 
@@ -127,16 +127,18 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 | B-001 | LSP Comparison Benchmark | Fair comparison vs grep approach | Knowledge-seeking: tool calls to find answers | Done | 🟢 | - |
 | B-002 | Langchain Knowledge Repo | Large repo indexed for testing | ./repos mount, 2,612 files | Done | 🟢 | - |
 | B-003 | aOa vs grep benchmarking | Speed/quality comparison | 74x faster, ranked results | Done | 🟢 | - |
-| B-004 | /multi endpoint | Multi-term ranked search | Currently returns 405 | Queued | 🟡 | - |
+| B-004 | /multi endpoint | Multi-term ranked search | GET+POST support, CLI auto-detect | Done | 🟢 | - |
 | B-005 | Filename Boosting | Search ranks by filename match | indexer.py:267-313 | Done | 🟢 | - |
-| B-006 | Session Benchmark (30 tasks) | Generic coding benchmark | session-benchmark.sh | Ready | 🟢 | - |
+| B-006 | Session Benchmark (30 tasks) | Generic coding benchmark | 68% token savings, 57% accuracy | Done | 🟢 | - |
 | B-007 | Traffic Light Branding | Grey/yellow/green accuracy display | aoa-status.sh, intent-summary.py | Done | 🟢 | - |
 
 **Results**:
 - 5/5 knowledge benchmark accuracy (100% top-1)
 - 34% fewer tool calls, 61% token savings
 - 74x faster on langchain (1.6ms vs 118ms)
+- Session benchmark: 68% token savings, 57% cold-repo accuracy
 - `/repo/<name>/symbol` endpoint discovered for repo-specific queries
+- `aoa why <file>` explains prediction signals
 
 ---
 
@@ -148,7 +150,7 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 | 2 | Prefetch + Correlation | ✅ Complete | - | 7/7 tasks done, 2/6 benchmark tests pass |
 | 3 | Transition Model | ✅ Complete | - | 6/6 tasks done, /context + CLI + caching |
 | 4 | Weight Optimization | 5/6 Complete | - | 90% Hit@5 + token savings visible |
-| B | Benchmarking | 5/6 Complete | /multi endpoint | 100% knowledge accuracy, session benchmark ready |
+| B | Benchmarking | ✅ Complete | - | 100% knowledge accuracy, 68% token savings |
 
 ---
 
