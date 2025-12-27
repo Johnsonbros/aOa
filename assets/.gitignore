@@ -1,0 +1,2 @@
+# Only ignore secrets, NOT images
+.env

@@ -8,42 +8,177 @@
 
 ## Phase 5 - Go Live (Outcome Positioning)
 
-**Shift**: Feature selling → Outcome/Intent selling
+**Success Criteria**: README, landing page, and visuals all lead with outcomes. Zero feature-first messaging.
+**Strategy**: Outcome/Intent selling > Feature selling. Show what users achieve, not what the tool does.
 
-### The Three Selling Styles
+### Positioning Framework
 
-| Style | Focus | Example | aOa Approach |
-|-------|-------|---------|--------------|
-| Feature | What it has | "Multi-term search, Redis caching" | ❌ Commodity trap |
-| Outcome | What you achieve | "68% fewer tokens, knows what you need" | ✅ Target this |
-| Emotional | How you feel | "Never search again, flow state coding" | 🎯 Stretch goal |
+**The Name IS the Value Prop:**
 
-### Outcome Headlines (Not Features)
+| Component | Meaning | User Benefit |
+|-----------|---------|--------------|
+| **O** | Big O notation - O(1) constant time | Speed: Same cost for 100 files or 100,000 |
+| **Angle** | Approach angle, precision | Accuracy: Right answer, not just fast |
+| **Attack** | 5 groups, 15+ methods | Confidence: Multiple signals, one result |
+
+**The Problem We Solve:**
+```
+Traditional search: Cost COMPOUNDS as codebase grows
+  100 files   → $X
+  10K files   → $10X
+  100K files  → $100X   ← This is O(n) or worse
+
+aOa: Cost stays FLAT regardless of size
+  100 files   → $X
+  10K files   → $X
+  100K files  → $X      ← This is O(1)
+```
+
+### Simplified Messaging (for non-CS audience)
+
+| Concept | Simple Explanation |
+|---------|-------------------|
+| **Big O** | "Pay the same no matter how big your project gets" |
+| **Angle** | "We find the RIGHT file, not just any file" |
+| **Attack** | "5 groups, 15+ methods, 1 confident answer" |
+
+### The Attack Methods (Full Depth)
+
+**GROUP 1: Search Methods**
+| Method | What It Does |
+|--------|--------------|
+| Symbol search | O(1) inverted index lookup |
+| Multi-term | Ranked by density across terms |
+| Pattern search | Agent-driven regex |
+| File glob | Pattern matching |
+| Changes | Recently modified files |
+
+**GROUP 2: Intent Methods**
+| Method | What It Does |
+|--------|--------------|
+| Intent tracking | Learns from every tool call |
+| Tag affinity | Groups files by intent (#auth, #python) |
+| Recent intents | What's hot right now |
+
+**GROUP 3: Knowledge Methods**
+| Method | What It Does |
+|--------|--------------|
+| Repo search | Search external codebases |
+| Repo multi | Multi-term in knowledge repos |
+
+**GROUP 4: Ranking Signals**
+| Signal | What It Does |
+|--------|--------------|
+| Recency | Time decay (recently touched = higher) |
+| Frequency | Access count (often touched = higher) |
+| Filename boost | Name matching (exact > prefix > contains) |
+| Transitions | P(B\|A) from session history |
+
+**GROUP 5: Prediction**
+| Method | What It Does |
+|--------|--------------|
+| Predictive prefetch | Files ready before you ask |
+| Confidence scoring | Only surface high-confidence results |
+
+**Summary**: 5 attack groups × 15+ methods → 1 confident answer
+
+### Headline Translations
 
 | ❌ Feature | ✅ Outcome |
 |-----------|-----------|
-| "Symbol search in <5ms" | "Find anything instantly" |
-| "Predictive file prefetch" | "Your next file, before you ask" |
-| "68% token savings" | "Cut your Claude costs by 2/3" |
-| "Intent tracking" | "Claude learns your patterns" |
-| "100% knowledge accuracy" | "Always the right answer, first try" |
+| "O(1) inverted index" | "Same speed for 100 or 100,000 files" |
+| "Predictive prefetch" | "Your next file, before you ask" |
+| "68% token savings" | "Pay the same fee, no matter how big" |
+| "7 ranking signals" | "7 ways to find it, 1 confident answer" |
+| "100% accuracy" | "Right answer, first try" |
+
+| # | Task | Expected Output | Solution Pattern | Deps | Status | C | R |
+|---|------|-----------------|------------------|------|--------|---|---|
+| GL-001 | Outcome-focused README | Headlines sell results, not specs | Rewrite existing README with outcome table | - | Done | 🟢 | - |
+| GL-002 | Demo GIFs | 4 GIFs: search, prediction, why, cost | asciinema or screen capture, convert to GIF | GL-001 | Queued | 🟢 | - |
+| GL-003 | Token savings calculator | Input sessions/month → Output $/saved | Simple HTML/JS calculator, embed in README | - | Queued | 🟢 | - |
+| GL-004 | O/Angle/Attack imagery | 6 Gemini images: hero, bigo, angle, attack, scaling, status | generate-imagery.py with GEMINI_API_KEY | - | Done | 🟢 | - |
+| GL-005 | Landing page copy | One-pager with outcome headlines | Markdown or HTML, links to README | GL-001 | Queued | 🟢 | - |
 
 ### Visual Strategy
 
-- Gemini Nano Banana imagery (AI-generated, eye-catching)
-- Before/after comparisons (grep loops vs single aoa search)
-- Token cost dashboards (real savings, real dollars)
-- Flow state visualization (less searching, more building)
+**6 Images (Gemini-generated):**
 
-### Go-Live Tasks
+| Image | Concept | Visual |
+|-------|---------|--------|
+| hero | O(1) vs O(n) | Flat cyan line vs rising red curve |
+| bigo | Big O explained | Multiple paths, one stays flat |
+| angle | Accuracy | Bullseye targeting, precision hit |
+| attack | 7 methods | Seven vectors converging on target |
+| scaling | Cost comparison | Compounding vs flat cost |
+| status | Dashboard | HUD with 7 green indicators |
 
-| # | Task | Output | Status |
-|---|------|--------|--------|
-| GL-001 | Write outcome-focused README | Headlines that sell results, not specs | Queued |
-| GL-002 | Create demo GIFs | Show the "aha" moments | Queued |
-| GL-003 | Token savings calculator | "You'd save $X/month" | Queued |
-| GL-004 | Banana imagery | AI-gen visuals for docs/landing | Queued |
-| GL-005 | Landing page copy | Outcome-first positioning | Queued |
+**Generator**: `./assets/generate-imagery.py` (requires GEMINI_API_KEY)
+
+### GL-002: Demo GIF Storyboards
+
+**Theme**: "Angle of Attack" - Sharp, fast, precise. No wasted motion.
+
+#### GIF 1: The Search (3-5 seconds)
+```
+Frame 1: Terminal prompt, cursor blinking
+Frame 2: Type: aoa search handleAuth
+Frame 3: INSTANT result (emphasize <5ms)
+         ⚡ 7 hits │ 3.2ms
+           src/auth/handler.py:45
+           src/middleware/session.py:12
+           ...
+Frame 4: Brief pause to let it land
+```
+**Message**: "Find anything. Instantly."
+
+#### GIF 2: The Prediction (4-6 seconds)
+```
+Frame 1: User types prompt: "Fix the auth bug"
+Frame 2: Status line updates BEFORE Claude responds:
+         ⚡ aOa 🟢 100% │ 45 intents │ auth.py session.py middleware.py
+Frame 3: Claude's response starts: "I see the auth files..."
+Frame 4: Highlight: files were ready BEFORE the ask
+```
+**Message**: "Your next file, before you ask."
+
+#### GIF 3: The Why (3-4 seconds)
+```
+Frame 1: aoa why src/auth/handler.py
+Frame 2: Output appears:
+         Tags: #python #auth #security
+         Recent Activity (1h):
+           Edit │ #auth #python
+           Read │ #auth
+         Prediction signals: 3 tags, 2 recent intents
+Frame 3: Brief pause
+```
+**Message**: "Every prediction, explainable."
+
+#### GIF 4: The Cost (5-7 seconds)
+```
+Frame 1: Split screen or before/after
+         LEFT: "Without aOa"
+           grep auth... (200 tokens)
+           grep login... (200 tokens)
+           read 8 files... (6,000 tokens)
+           Total: 6,600 tokens
+
+         RIGHT: "With aOa"
+           [predicted: auth.py, session.py]
+           Total: 150 tokens
+
+Frame 2: Big number appears: "97% SAVINGS"
+Frame 3: Dollar amount: "~$X/month saved"
+```
+**Message**: "Cut your Claude costs by 2/3."
+
+#### Recording Notes
+- Use asciinema for terminal capture
+- Convert to GIF with gifski or similar
+- Keep under 1MB each for fast loading
+- Dark terminal theme (consistent brand)
+- Monospace font, high contrast
 
 ---
 
@@ -192,7 +327,7 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 | 3 | Transition Model | ✅ Complete | - | 6/6 tasks done, /context + CLI + caching |
 | 4 | Weight Optimization | 5/6 Complete | - | 90% Hit@5 + token savings visible |
 | B | Benchmarking | ✅ Complete | - | 100% knowledge accuracy, 68% token savings |
-| 5 | Go Live | 0/5 | - | Outcome positioning, visuals, landing page |
+| 5 | Go Live | 2/5 | - | Outcome positioning, visuals, landing page |
 
 ---
 
