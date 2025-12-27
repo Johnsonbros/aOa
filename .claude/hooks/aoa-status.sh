@@ -26,36 +26,43 @@ DIM='\033[2m'
 RESET='\033[0m'
 
 # Get accuracy from metrics API (fast, <10ms)
+# Returns: evaluated count and hit percentage
 get_accuracy() {
     local metrics
     metrics=$(curl -s --max-time 0.5 "${AOA_URL}/metrics" 2>/dev/null)
     if [ -z "$metrics" ]; then
-        echo "---"
+        echo "0 0"
         return
     fi
 
     local evaluated hit_pct
     evaluated=$(echo "$metrics" | jq -r '.rolling.evaluated // 0' 2>/dev/null)
     hit_pct=$(echo "$metrics" | jq -r '.rolling.hit_at_5_pct // 0' 2>/dev/null)
-
-    if [ "$evaluated" -lt 3 ] 2>/dev/null; then
-        echo "---"
-    else
-        printf "%.0f" "$hit_pct"
-    fi
+    echo "$evaluated $hit_pct"
 }
 
-# Color accuracy based on value
-color_accuracy() {
-    local acc="$1"
-    if [ "$acc" = "---" ]; then
-        echo -e "${DIM}---%${RESET}"
-    elif [ "$acc" -ge 80 ] 2>/dev/null; then
-        echo -e "${GREEN}${BOLD}${acc}%${RESET}"
-    elif [ "$acc" -ge 50 ] 2>/dev/null; then
-        echo -e "${YELLOW}${BOLD}${acc}%${RESET}"
+# Format with traffic lights
+format_accuracy() {
+    local evaluated="$1"
+    local hit_pct="$2"
+
+    # Learning mode - traffic light only
+    if [ "$evaluated" -lt 2 ] 2>/dev/null; then
+        # Grey = learning (neutral, not broken)
+        echo -e "${DIM}⚪${RESET}"
+    elif [ "$evaluated" -lt 3 ] 2>/dev/null; then
+        # Yellow = calibrating
+        echo -e "${YELLOW}🟡${RESET}"
     else
-        echo -e "${RED}${BOLD}${acc}%${RESET}"
+        # Ready - show traffic light + percentage
+        local pct_int
+        pct_int=$(printf "%.0f" "$hit_pct")
+        if [ "$pct_int" -ge 80 ] 2>/dev/null; then
+            echo -e "${GREEN}🟢 ${BOLD}${pct_int}%${RESET}"
+        else
+            # Yellow for anything below 80%
+            echo -e "${YELLOW}🟡 ${BOLD}${pct_int}%${RESET}"
+        fi
     fi
 }
 
@@ -74,9 +81,9 @@ if [ "$INTENTS" = "0" ] || [ -z "$INTENTS" ]; then
     exit 0
 fi
 
-# Get and format accuracy
-ACC=$(get_accuracy)
-ACC_COLORED=$(color_accuracy "$ACC")
+# Get and format accuracy with traffic lights
+read -r EVAL HIT_PCT <<< "$(get_accuracy)"
+ACC_DISPLAY=$(format_accuracy "$EVAL" "$HIT_PCT")
 
-# Build branded output - ACCURACY FIRST
-echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${ACC_COLORED} ${DIM}│${RESET} ${INTENTS} intents ${DIM}│${RESET} ${YELLOW}${RECENT}${RESET}"
+# Build branded output - TRAFFIC LIGHT FIRST
+echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${ACC_DISPLAY} ${DIM}│${RESET} ${INTENTS} intents ${DIM}│${RESET} ${YELLOW}${RECENT}${RESET}"

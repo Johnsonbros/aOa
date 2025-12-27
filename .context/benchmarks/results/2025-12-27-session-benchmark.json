@@ -1,0 +1,8 @@
+{
+    "benchmark": "session-benchmark-v1",
+    "date": "2025-12-27",
+    "tasks": 30,
+    "traditional": { "calls": 53, "tokens": 211430, "found": 23 },
+    "aoa": { "calls": 116, "tokens": 55760, "found": 2, "top3": 1 },
+    "savings": { "calls_pct": -114, "tokens_pct": 74 }
+}

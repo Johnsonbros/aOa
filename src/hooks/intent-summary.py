@@ -57,20 +57,21 @@ def get_accuracy():
 
 
 def format_accuracy(hit_pct, evaluated):
-    """Format accuracy with color coding."""
-    if evaluated < 3:
-        # Not enough data yet
-        return f"{DIM}---%{RESET}"
-
-    # Color based on accuracy
-    if hit_pct >= 80:
-        color = GREEN
-    elif hit_pct >= 50:
-        color = YELLOW
+    """Format accuracy with traffic lights."""
+    if evaluated < 2:
+        # Learning - grey (neutral, not broken)
+        return f"{DIM}⚪{RESET}"
+    elif evaluated < 3:
+        # Calibrating - yellow light
+        return f"{YELLOW}🟡{RESET}"
     else:
-        color = RED
-
-    return f"{color}{BOLD}{hit_pct:.0f}%{RESET}"
+        # Ready - traffic light + percentage
+        pct = int(hit_pct)
+        if pct >= 80:
+            return f"{GREEN}🟢 {BOLD}{pct}%{RESET}"
+        else:
+            # Yellow for anything below 80%
+            return f"{YELLOW}🟡 {BOLD}{pct}%{RESET}"
 
 
 def format_output(data: dict, elapsed_ms: float) -> str:
