@@ -3,7 +3,9 @@
 aOa Intent Summary - UserPromptSubmit Hook
 
 Shows branded intent summary when user submits a prompt.
-Output: ⚡ aOa │ 136 intents │ 16 tags │ 34.0ms │ editing python searching
+Output: ⚡ aOa 87% │ 877 intents │ 0.1ms │ editing python searching
+        ^^^^^^^^
+        Accuracy is FIRST - bright and visible
 """
 
 import sys
@@ -15,10 +17,11 @@ from urllib.error import URLError
 
 AOA_URL = os.environ.get("AOA_URL", "http://localhost:8080")
 
-# ANSI colors
-CYAN = "\033[36m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
+# ANSI colors - brighter for key metrics
+CYAN = "\033[96m"       # Bright cyan for aOa brand
+GREEN = "\033[92m"      # Bright green for good accuracy
+YELLOW = "\033[93m"     # Bright yellow for tags
+RED = "\033[91m"        # Bright red for low accuracy
 BOLD = "\033[1m"
 DIM = "\033[2m"
 RESET = "\033[0m"
@@ -39,13 +42,43 @@ def get_intent_stats():
     return data, elapsed_ms
 
 
+def get_accuracy():
+    """Fetch prediction accuracy from aOa metrics."""
+    try:
+        req = Request(f"{AOA_URL}/metrics")
+        with urlopen(req, timeout=1) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            rolling = data.get('rolling', {})
+            hit_pct = rolling.get('hit_at_5_pct', 0)
+            evaluated = rolling.get('evaluated', 0)
+            return hit_pct, evaluated
+    except (URLError, Exception):
+        return None, 0
+
+
+def format_accuracy(hit_pct, evaluated):
+    """Format accuracy with color coding."""
+    if evaluated < 3:
+        # Not enough data yet
+        return f"{DIM}---%{RESET}"
+
+    # Color based on accuracy
+    if hit_pct >= 80:
+        color = GREEN
+    elif hit_pct >= 50:
+        color = YELLOW
+    else:
+        color = RED
+
+    return f"{color}{BOLD}{hit_pct:.0f}%{RESET}"
+
+
 def format_output(data: dict, elapsed_ms: float) -> str:
     """Format the branded output line."""
     stats = data.get('stats', {})
     records = data.get('records', [])
 
     total = stats.get('total_records', 0)
-    tags_count = stats.get('unique_tags', 0)
 
     # Get recent tags (last few records)
     recent_tags = set()
@@ -56,11 +89,14 @@ def format_output(data: dict, elapsed_ms: float) -> str:
     # Limit to 5 most relevant tags
     tags_str = ' '.join(list(recent_tags)[:5]) if recent_tags else 'learning...'
 
-    # Build branded output
+    # Get accuracy - THE KEY METRIC
+    hit_pct, evaluated = get_accuracy()
+    accuracy_str = format_accuracy(hit_pct, evaluated)
+
+    # Build branded output - ACCURACY FIRST
     parts = [
-        f"{CYAN}{BOLD}⚡ aOa{RESET}",
+        f"{CYAN}{BOLD}⚡ aOa{RESET} {accuracy_str}",  # Brand + accuracy together
         f"{total} intents",
-        f"{tags_count} tags",
         f"{GREEN}{elapsed_ms:.1f}ms{RESET}",
     ]
 
