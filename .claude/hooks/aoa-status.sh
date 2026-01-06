@@ -48,7 +48,7 @@ format_accuracy() {
 
     # Learning mode - traffic light only
     if [ "$evaluated" -lt 2 ] 2>/dev/null; then
-        # Grey = learning (neutral, not broken)
+        # Grey = calibrating (neutral, not broken)
         echo -e "${DIM}⚪${RESET}"
     elif [ "$evaluated" -lt 3 ] 2>/dev/null; then
         # Yellow = calibrating
@@ -68,7 +68,7 @@ format_accuracy() {
 
 # Main
 if [ ! -f "$STATUS_FILE" ]; then
-    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${DIM}│${RESET} learning..."
+    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${DIM}│${RESET} calibrating..."
     exit 0
 fi
 
@@ -77,7 +77,7 @@ INTENTS=$(jq -r '.intents // 0' "$STATUS_FILE" 2>/dev/null)
 RECENT=$(jq -r '.recent[:5] | map(gsub("#"; "")) | join(" ")' "$STATUS_FILE" 2>/dev/null)
 
 if [ "$INTENTS" = "0" ] || [ -z "$INTENTS" ]; then
-    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${DIM}│${RESET} learning..."
+    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${DIM}│${RESET} calibrating..."
     exit 0
 fi
 

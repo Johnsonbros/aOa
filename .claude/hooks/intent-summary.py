@@ -88,7 +88,7 @@ def format_output(data: dict, elapsed_ms: float) -> str:
             recent_tags.add(tag.replace('#', ''))
 
     # Limit to 5 most relevant tags
-    tags_str = ' '.join(list(recent_tags)[:5]) if recent_tags else 'learning...'
+    tags_str = ' '.join(list(recent_tags)[:5]) if recent_tags else 'calibrating...'
 
     # Get accuracy - THE KEY METRIC
     hit_pct, evaluated = get_accuracy()
@@ -122,7 +122,7 @@ def main():
 
     if data.get('stats', {}).get('total_records', 0) == 0:
         # No intents yet - show minimal output
-        print(f"{CYAN}{BOLD}⚡ aOa{RESET} {DIM}│{RESET} learning... {DIM}(use Claude to build intent){RESET}")
+        print(f"{CYAN}{BOLD}⚡ aOa{RESET} {DIM}│{RESET} calibrating... {DIM}(use Claude to build intent){RESET}")
         return
 
     output = format_output(data, elapsed_ms)

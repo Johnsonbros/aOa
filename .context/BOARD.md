@@ -10,13 +10,12 @@
 
 | # | Task | Status | Deps | Notes |
 |---|------|--------|------|-------|
-| GL-006 | Messaging Unification | **Audit Done** | - | See master audit below |
-| GL-003 | Token Calculator | Queued | GL-006 | HTML/JS, embed in README |
-| GL-005 | Landing Page | Queued | GL-006 | One-pager with outcomes |
-| GL-002 | Demo GIFs | Recording | GL-006 | Storyboards ready |
+| GL-003 | Token Calculator | Queued | - | HTML/JS, embed in README |
+| GL-005 | Landing Page | Queued | - | One-pager with outcomes |
+| GL-002 | Demo GIFs | Recording | - | Storyboards ready |
 | P4-006 | 90% Accuracy | Ongoing | - | Background tuner learning |
 
-**Next Action**: Implement GL-006 (messaging unification) per audit checklist
+**Next Action**: GL-003 (Token Calculator) or GL-005 (Landing Page)
 
 ---
 
@@ -38,42 +37,43 @@
 
 ### Implementation Checklist
 
-#### Phase 1: CLI Header (5 min)
-- [ ] `cli/aoa:2` → `# aoa - 5 angles. 1 attack.`
-- [ ] `cli/aoa:883` → `5 angles. 1 attack.`
+#### Phase 1: CLI Header (5 min) ✅
+- [x] `cli/aoa:2` → `# aoa - 5 angles. 1 attack.`
+- [x] `cli/aoa:883` → `5 angles. 1 attack.`
 
-#### Phase 2: CLI Section Headers (10 min)
-- [ ] `cli/aoa:885` STATUS COMMANDS → `ATTACK STATUS`
-- [ ] `cli/aoa:892` LOCAL SEARCH → `SYMBOL ANGLE`
-- [ ] `cli/aoa:898` PATTERN SEARCH → `SIGNAL ANGLE`
-- [ ] `cli/aoa:903` INTENT TRACKING → `INTENT ANGLE`
-- [ ] `cli/aoa:915` KNOWLEDGE REPOS → `INTEL ANGLE`
+#### Phase 2: CLI Section Headers (10 min) ✅
+- [x] `cli/aoa:885` STATUS COMMANDS → `ATTACK STATUS`
+- [x] `cli/aoa:892` LOCAL SEARCH → `SYMBOL ANGLE`
+- [x] `cli/aoa:898` PATTERN SEARCH → `SIGNAL ANGLE`
+- [x] `cli/aoa:903` INTENT TRACKING → `INTENT ANGLE`
+- [x] `cli/aoa:915` KNOWLEDGE REPOS → `INTEL ANGLE`
 
-#### Phase 3: Services Map (10 min)
-- [ ] `cli/aoa:665` CORE CAPABILITIES → `THE FIVE ANGLES`
-- [ ] `cli/aoa:668-677` Update capability names
-- [ ] `cli/aoa:764` aOa Services → `aOa Angles`
+#### Phase 3: Services Map (10 min) ✅
+- [x] `cli/aoa:665` CORE CAPABILITIES → `THE FIVE ANGLES`
+- [x] `cli/aoa:668-677` Update capability names
+- [x] `cli/aoa:764` aOa Services → `aOa Angles`
 
-#### Phase 4: Install Script (5 min)
-- [ ] `install.sh:31` → `Deploying 5 angles...`
-- [ ] `install.sh:161` → `Deploying angles...`
-- [ ] `install.sh:~197` → `⚡ aOa Attack Ready!`
+#### Phase 4: Install Script (5 min) ✅
+- [x] `install.sh:31` → `Deploying 5 angles...`
+- [x] `install.sh:161` → `Deploying angles...`
+- [x] `install.sh:~197` → `⚡ aOa Attack Ready!`
 
-#### Phase 5: Status Line (2 min)
-- [ ] `hooks/aoa-status.sh` `learning...` → `calibrating...`
+#### Phase 5: Status Line (2 min) ✅
+- [x] `hooks/aoa-status.sh` `learning...` → `calibrating...`
+- [x] `intent-summary.py` `learning...` → `calibrating...`
 
-#### Phase 6: README (10 min)
-- [ ] Section headers: "The Five Angles", "Hit Rate", "Deploy"
-- [ ] Update angle terminology in body
+#### Phase 6: README (10 min) ✅
+- [x] Section headers: "The Five Angles", "Hit Rate", "Deploy"
+- [x] Update angle terminology in body
 
-#### Phase 7: CLAUDE.md (5 min)
-- [ ] Header → `5 Angles. 1 Attack.`
-- [ ] Rule names updated
+#### Phase 7: CLAUDE.md (5 min) ✅
+- [x] Header → `5 Angles. 1 Attack.`
+- [x] Rule names updated
 
-#### Phase 8: Verification
-- [ ] `grep -r "Bold tools" .` → 0 results
-- [ ] `aoa help` shows new headers
-- [ ] `aoa services` shows angle terminology
+#### Phase 8: Verification ✅
+- [x] `grep -r "Bold tools" .` → 0 results
+- [x] `aoa help` shows new headers
+- [x] `aoa services` shows angle terminology
 
 ---
 
@@ -83,7 +83,7 @@
 |---|------|--------|------|
 | GL-001 | README Rewrite | Outcome-focused messaging | 2025-12-27 |
 | GL-004 | Imagery | 3 Gemini images, neon cyan theme | 2025-12-27 |
-| GL-006 | Messaging Audit | 68 touchpoints inventoried | 2026-01-06 |
+| GL-006 | Messaging Unification | 5 angles branding across all touchpoints | 2026-01-06 |
 
 ---
 

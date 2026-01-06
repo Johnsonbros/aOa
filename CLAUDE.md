@@ -1,4 +1,4 @@
-# aOa - AI Agent Instructions
+# aOa - 5 Angles. 1 Attack.
 
 **CRITICAL: This project has aOa installed. ALWAYS use `aoa search` instead of Grep/Glob.**
 
@@ -55,7 +55,7 @@ When spawning any agent, instruct it to first read:
 
 ---
 
-## Rule #1: Search with aOa First
+## Rule #1: Symbol Angle First
 
 **NEVER do this:**
 ```bash
@@ -90,7 +90,7 @@ This tells you EXACTLY where to look. Don't read entire files - read specific li
 Read(file_path="src/index/indexer.py", offset=1305, limit=10)
 ```
 
-## Rule #3: One Search Replaces Many Greps
+## Rule #3: One Angle Replaces Many Tools
 
 **WRONG:**
 ```bash

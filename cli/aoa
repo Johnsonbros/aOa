@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# aoa - Bold tools for Claude Code
+# aoa - 5 angles. 1 attack.
 # FIND ME
 # Usage:
 #   aoa status              Show status line
@@ -630,12 +630,12 @@ cmd_services() {
     echo -e "${CYAN}${BOLD}"
     cat << 'EOF'
 ╔══════════════════════════════════════════════════════════════════════╗
-║                         aOa Service Map                              ║
+║                         aOa Attack Map                               ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║                                                                      ║
 ║  ┌─────────────────────────────────────────────────────────────┐    ║
 ║  │                     GATEWAY (:8080)                         │    ║
-║  │              Single entry point for all services            │    ║
+║  │              Single entry point for all angles              │    ║
 ║  └─────────────────────────────────────────────────────────────┘    ║
 ║                              │                                       ║
 ║          ┌───────────────────┼───────────────────┐                  ║
@@ -662,20 +662,23 @@ cmd_services() {
 ║  └───────────────┘                                                  ║
 ║                                                                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CORE CAPABILITIES                                                   ║
+║  THE FIVE ANGLES                                                     ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║                                                                      ║
-║  ⚡ SEARCH         O(1) symbol lookup across codebase                ║
+║  ⚡ SYMBOL         O(1) symbol lookup across codebase                ║
 ║     aoa search <term>                                                ║
 ║                                                                      ║
 ║  🎯 INTENT         Track tool calls, extract behavior patterns       ║
 ║     aoa intent recent                                                ║
 ║                                                                      ║
-║  🧠 MEMORY         Dynamic working context for LLMs                  ║
-║     aoa memory [prose|compact|structured]                            ║
+║  🧠 STRIKE         Predictive context, dynamic working memory        ║
+║     aoa context "fix auth bug"                                       ║
 ║                                                                      ║
-║  📊 METRICS        Prediction accuracy, token savings                ║
-║     aoa health                                                       ║
+║  📊 SIGNAL         Multi-term ranking, pattern matching              ║
+║     aoa multi auth,session                                           ║
+║                                                                      ║
+║  📁 INTEL          External reference repos, isolated search         ║
+║     aoa repo <name> search <term>                                    ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 EOF
@@ -761,11 +764,11 @@ cmd_memory() {
 }
 
 cmd_health() {
-    echo -e "${BOLD}aOa Services${NC}"
+    echo -e "${BOLD}aOa Angles${NC}"
     echo ""
 
-    # Check index service
-    echo -n "Index service (${INDEX_URL}): "
+    # Check index service (Symbol + Intent angles)
+    echo -n "Symbol/Intent (${INDEX_URL}): "
     if curl -s --connect-timeout 2 "${INDEX_URL}/health" > /dev/null 2>&1; then
         local idx_health=$(curl -s "${INDEX_URL}/health")
         local local_files=$(echo "$idx_health" | jq -r '.local.files')
@@ -779,16 +782,16 @@ cmd_health() {
         echo -e "${RED}✗ Not running${NC}"
     fi
 
-    # Check status service
-    echo -n "Status service (${STATUS_URL}): "
+    # Check status service (Strike angle metrics)
+    echo -n "Strike/Metrics (${STATUS_URL}): "
     if curl -s --connect-timeout 2 "${STATUS_URL}/health" > /dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} Running"
     else
         echo -e "${RED}✗ Not running${NC}"
     fi
 
-    # Check Redis (via status service)
-    echo -n "Redis: "
+    # Check Redis (predictions, scores)
+    echo -n "Redis (predictions): "
     if curl -s --connect-timeout 2 "${STATUS_URL}/session" > /dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} Connected"
     else
@@ -880,27 +883,27 @@ cmd_whitelist() {
 cmd_help() {
     cat << 'EOF'
                               AOA
-                       Bold tools for Claude Code
+                       5 angles. 1 attack.
 
-STATUS COMMANDS
-  status                 Show status line (context, cost, usage)
+ATTACK STATUS
+  status                 Show attack status (hit rate, intents)
   status --watch         Live updating status
   status --json          Full metrics as JSON
   history [limit]        Recent events
   reset [session|weekly] Reset counters
 
-LOCAL SEARCH (your project - default)
-  search <term>          Find symbol/term in local codebase
-  multi <t1,t2,...>      Multi-term search
+SYMBOL ANGLE (your project - default)
+  search <term>          O(1) symbol lookup
+  multi <t1,t2,...>      Multi-angle search
   changes [time]         Recent file changes (e.g., 5m, 1h)
   files [pattern]        List indexed files
 
-PATTERN SEARCH (agent-driven regex)
+SIGNAL ANGLE (pattern matching)
   pattern '<json>'       Multi-pattern regex search
     --repo <name>        Search in specific repo
     --since <time>       Only files modified recently (e.g., 7d)
 
-INTENT TRACKING (semantic layer)
+INTENT ANGLE (behavioral tracking)
   intent recent [since]  Recent intent records (e.g., 1h, 30m)
   intent tags            All tags with file counts
   intent files <tag>     Files associated with an intent tag
@@ -912,18 +915,18 @@ URL WHITELIST (network security)
   whitelist add <host>   Add URL (e.g., git.company.com)
   whitelist remove <h>   Remove custom URL
 
-KNOWLEDGE REPOS (isolated reference code)
-  repo list              List knowledge repos
+INTEL ANGLE (external reference)
+  repo list              List intel sources
   repo add <name> <url>  Clone and index a git repo
-  repo remove <name>     Remove a knowledge repo
+  repo remove <name>     Remove an intel source
 
   repo <name> search <t> Search in a specific repo
   repo <name> multi <ts> Multi-term search in repo
   repo <name> files      List files in repo
   repo <name> file <p>   Get file content from repo
 
-SYSTEM
-  health                 Check all services
+STRIKE ANGLE (prediction)
+  health                 Check all angles
   memory [format]        Dynamic working context (prose|compact|structured)
   services               Visual service map with live status
 
@@ -940,10 +943,10 @@ EXAMPLES
   aoa repo flask files *.py
 
 PHILOSOPHY
-  - Local search is the default (your code)
-  - Knowledge repos are isolated reference material
-  - No mixing - repo code never pollutes local results
-  - Delete a repo = clean removal, no cleanup needed
+  - Symbol angle is default (your code)
+  - Intel angle is isolated reference material
+  - No mixing - intel never pollutes symbol results
+  - Delete intel = clean removal, no cleanup needed
 
 EOF
 }

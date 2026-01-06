@@ -38,36 +38,36 @@ aOa learns what you need and has it ready. The cost stays flat—whether you hav
 
 ---
 
-## How It Works
+## The Five Angles
 
-![Five methods, one answer](assets/generated/convergence.png)
+![Five angles, one attack](assets/generated/convergence.png)
 
-aOa uses **5 attack groups** with **15+ methods** to find exactly what you need:
+aOa approaches every search from **5 angles**, converging on **1 attack**:
 
-| Group | What It Does |
+| Angle | What It Does |
 |-------|--------------|
-| **Search** | O(1) symbol lookup, multi-term ranking, pattern matching |
+| **Symbol** | O(1) lookup across your entire codebase |
 | **Intent** | Learns from every tool call, builds tag affinity |
-| **Knowledge** | Searches external repos without polluting your results |
-| **Ranking** | Recency, frequency, filename matching, transitions |
-| **Prediction** | Prefetches files before you ask |
+| **Intel** | Searches external repos without polluting your results |
+| **Signal** | Recency, frequency, filename matching, transitions |
+| **Strike** | Prefetches files before you ask |
 
-All of these converge into **one confident answer**.
+All five angles converge into **one confident answer**.
 
 ---
 
-## The Numbers
+## Hit Rate
 
 | Metric | Without aOa | With aOa | Savings |
 |--------|-------------|----------|---------|
 | Tool calls | 7 | 2 | 71% |
 | Tokens | 8,500 | 1,150 | **86%** |
 | Time | 2.6s | 54ms | 98% |
-| Accuracy | ~70% | **100%** | Perfect |
+| Hit rate | ~70% | **100%** | Perfect |
 
 ---
 
-## Quick Start
+## Deploy
 
 ```bash
 git clone https://github.com/anthropics/aoa && cd aoa
@@ -75,7 +75,7 @@ git clone https://github.com/anthropics/aoa && cd aoa
 aoa health
 ```
 
-That's it. aOa starts learning immediately.
+That's it. All five angles deploy and start calibrating immediately.
 
 ---
 
@@ -98,8 +98,8 @@ The more you use Claude, the smarter aOa gets. Every tool call teaches it your p
 **Angle O(1)f Attack**
 
 - **O** = Big O notation. O(1) constant time. Same cost regardless of size.
-- **Angle** = The right approach. Not just fast—accurate.
-- **Attack** = 5 groups, 15+ methods, converging on one answer.
+- **Angle** = 5 approach methods (Symbol, Intent, Intel, Signal, Strike).
+- **Attack** = The orchestration that combines all angles for accuracy.
 
 ---
 

@@ -11,7 +11,7 @@
 STATUS_FILE="${AOA_STATUS_FILE:-$HOME/.aoa/status.json}"
 
 if [ ! -f "$STATUS_FILE" ]; then
-    echo "⚡ aOa │ learning..."
+    echo "⚡ aOa │ calibrating..."
     exit 0
 fi
 
@@ -22,7 +22,7 @@ RECENT=$(jq -r '.recent[:3] | map(gsub("#"; "")) | join(" ")' "$STATUS_FILE" 2>/
 LAST_TOOL=$(jq -r '.last_tool // ""' "$STATUS_FILE" 2>/dev/null)
 
 if [ "$INTENTS" = "0" ] || [ -z "$INTENTS" ]; then
-    echo "⚡ aOa │ learning..."
+    echo "⚡ aOa │ calibrating..."
 else
     echo "⚡ aOa │ ${INTENTS} │ ${TAGS_COUNT} tags │ ${RECENT}"
 fi

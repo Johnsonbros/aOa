@@ -28,7 +28,7 @@ NC='\033[0m'
 
 echo -e "${CYAN}${BOLD}"
 echo "  ⚡ aOa - Angle O(1)f Attack"
-echo "     Installation Starting..."
+echo "     Deploying 5 angles..."
 echo -e "${NC}"
 echo
 
@@ -155,14 +155,14 @@ export CODEBASE_PATH="${CODEBASE_PATH:-.}"
 echo "Codebase path: ${CODEBASE_PATH} ($(cd "${CODEBASE_PATH}" && pwd))"
 echo
 
-echo "Building Docker services..."
+echo "Building attack surface..."
 docker compose build --quiet
 
-echo "Starting services..."
+echo "Deploying angles..."
 docker compose up -d
 
 echo
-echo "Waiting for services to be healthy..."
+echo "Aligning angles..."
 sleep 5
 
 # =============================================================================
@@ -194,14 +194,14 @@ echo "Verifying installation..."
 ./scripts/verify-isolation.sh
 
 echo
-echo -e "${GREEN}${BOLD}⚡ aOa Installation Complete!${NC}"
+echo -e "${GREEN}${BOLD}⚡ aOa Attack Ready!${NC}"
 echo
 echo "Indexed: $(cd "${CODEBASE_PATH}" && pwd)"
 echo
 echo "Try it:"
-echo "  aoa search <term>          Search your code"
-echo "  aoa health                 Check services"
-echo "  curl localhost:8080/network  View network topology"
+echo "  aoa search <term>          Symbol angle"
+echo "  aoa health                 Check all angles"
+echo "  aoa services               View attack map"
 echo
 echo "To index a different directory:"
 echo "  CODEBASE_PATH=/other/path docker compose up -d"

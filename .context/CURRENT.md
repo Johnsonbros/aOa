@@ -8,18 +8,17 @@
 
 ## Now
 
-Board cleaned. Phases 1-4 archived. Ready to implement messaging unification (GL-006).
+GL-006 complete. All messaging unified around "5 angles. 1 attack." theme.
 
-**Next**: Start GL-006 Phase 1 - CLI header changes
+**Next**: GL-003 (Token Calculator) or GL-005 (Landing Page)
 
 ## Active Tasks
 
 | # | Task | Status | Next Step |
 |---|------|--------|-----------|
-| GL-006 | Messaging Unification | Audit Done | Implement changes |
-| GL-003 | Token Calculator | Queued | After GL-006 |
-| GL-005 | Landing Page | Queued | After GL-006 |
-| GL-002 | Demo GIFs | Recording | After messaging aligned |
+| GL-003 | Token Calculator | Queued | Start implementation |
+| GL-005 | Landing Page | Queued | Start implementation |
+| GL-002 | Demo GIFs | Recording | Record with new branding |
 
 ## Session 13 Progress
 
@@ -27,7 +26,7 @@ Board cleaned. Phases 1-4 archived. Ready to implement messaging unification (GL
 2. Messaging audit requested
 3. Full audit completed (68 touchpoints)
 4. Board cleaned and focused
-5. **Next**: Implement GL-006
+5. GL-006 implemented - all 8 phases complete ✅
 
 ## Key Files
 
