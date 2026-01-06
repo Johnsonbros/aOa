@@ -21,14 +21,12 @@
 
 set -e
 
-# Configuration
-INDEX_HOST="${AOA_INDEX_HOST:-localhost}"
-INDEX_PORT="${AOA_INDEX_PORT:-9999}"
-STATUS_HOST="${AOA_STATUS_HOST:-localhost}"
-STATUS_PORT="${AOA_STATUS_PORT:-9998}"
+# Configuration - all requests go through gateway (8080)
+GATEWAY_HOST="${AOA_GATEWAY_HOST:-localhost}"
+GATEWAY_PORT="${AOA_GATEWAY_PORT:-8080}"
 
-INDEX_URL="http://${INDEX_HOST}:${INDEX_PORT}"
-STATUS_URL="http://${STATUS_HOST}:${STATUS_PORT}"
+INDEX_URL="http://${GATEWAY_HOST}:${GATEWAY_PORT}"
+STATUS_URL="http://${GATEWAY_HOST}:${GATEWAY_PORT}"
 
 # Colors
 BOLD='\033[1m'
