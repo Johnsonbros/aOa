@@ -74,6 +74,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - CLAUDE_SESSIONS=/claude-sessions
+      - INDEX_URL=http://index:9999
     networks:
       - aoa-internal
     depends_on:

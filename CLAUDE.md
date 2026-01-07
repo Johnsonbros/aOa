@@ -180,6 +180,22 @@ This helps predict which files you'll need next.
 └── archive/        # Completed sessions, old bridges (date-prefixed)
 ```
 
+## Docker Parity Rule
+
+**CRITICAL: Both Docker approaches MUST be maintained in parity.**
+
+We provide two deployment options:
+- `docker-compose.yml` - Multi-container (gateway, index, status, proxy, redis) - better for debugging
+- `Dockerfile` - Monolithic single container - simpler for end users
+
+**When modifying services:**
+1. Update the service code (e.g., `services/status/status_service.py`)
+2. Verify change works in docker-compose: `docker-compose build && docker-compose up -d`
+3. Verify change works in monolithic: `docker build -t aoa . && docker run ...`
+4. Both must produce identical behavior
+
+**Environment variables must match** - if you add an env var to `docker-compose.yml`, ensure the monolithic Dockerfile/entrypoint handles it too.
+
 ## Health Check
 
 Run `aoa health` to verify services are running.

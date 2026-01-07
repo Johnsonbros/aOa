@@ -85,7 +85,7 @@ stderr_logfile=/var/log/supervisor/index-error.log
 [program:status]
 command=python /app/status/status_service.py
 directory=/app/status
-environment=REDIS_URL="redis://localhost:6379/0",STATUS_PORT="9998",CLAUDE_SESSIONS="/claude-sessions"
+environment=REDIS_URL="redis://localhost:6379/0",STATUS_PORT="9998",CLAUDE_SESSIONS="/claude-sessions",INDEX_URL="http://localhost:9999"
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/status.log

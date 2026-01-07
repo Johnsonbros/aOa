@@ -374,13 +374,13 @@ class SubagentSyncer:
                         total_baseline['potential_savings_tokens'] += b.get('potential_savings', {}).get('tokens_est', 0)
 
             # Store aggregated baseline in Redis for metrics endpoint
-            self.redis.hmset('aoa:baseline', {
-                'total_tokens': total_baseline['total_tokens'],
-                'tool_calls': total_baseline['tool_calls'],
-                'search_tools': total_baseline['search_tools'],
-                'potential_savings_tokens': total_baseline['potential_savings_tokens'],
-                'last_sync': int(now),
-            })
+            # Use hincrby for cumulative tracking (not hmset which overwrites)
+            if total_baseline['total_tokens'] > 0:
+                self.redis.hincrby('aoa:baseline', 'total_tokens', total_baseline['total_tokens'])
+                self.redis.hincrby('aoa:baseline', 'tool_calls', total_baseline['tool_calls'])
+                self.redis.hincrby('aoa:baseline', 'search_tools', total_baseline['search_tools'])
+                self.redis.hincrby('aoa:baseline', 'potential_savings_tokens', total_baseline['potential_savings_tokens'])
+            self.redis.hset('aoa:baseline', 'last_sync', int(now))
 
             return {
                 'projects': results,
@@ -819,14 +819,14 @@ def get_baseline():
             'message': 'No baseline data yet. Trigger /sync/subagents first.'
         })
 
-    # Convert bytes to appropriate types
+    # Convert string values to integers (Redis returns strings with decode_responses=True)
     return jsonify({
         'baseline': {
-            'total_tokens': int(baseline.get(b'total_tokens', 0)),
-            'tool_calls': int(baseline.get(b'tool_calls', 0)),
-            'search_tools': int(baseline.get(b'search_tools', 0)),
-            'potential_savings_tokens': int(baseline.get(b'potential_savings_tokens', 0)),
-            'last_sync': int(baseline.get(b'last_sync', 0)),
+            'total_tokens': int(baseline.get('total_tokens', 0)),
+            'tool_calls': int(baseline.get('tool_calls', 0)),
+            'search_tools': int(baseline.get('search_tools', 0)),
+            'potential_savings_tokens': int(baseline.get('potential_savings_tokens', 0)),
+            'last_sync': int(baseline.get('last_sync', 0)),
         }
     })
 
@@ -845,10 +845,12 @@ def main():
     manager = StatusManager(REDIS_URL)
 
     # Initialize subagent syncer
+    # Use INDEX_URL from environment (matches docker-compose config)
+    intent_url = os.environ.get('INDEX_URL', 'http://localhost:9999')
     try:
         syncer = SubagentSyncer(
             redis_client=manager.r,
-            intent_url="http://localhost:9999"
+            intent_url=intent_url
         )
         print(f"Subagent syncer initialized")
         print(f"  Claude dir: {syncer.claude_dir}")
