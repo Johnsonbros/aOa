@@ -258,18 +258,29 @@ cmd_remove() {
     curl -s -X DELETE "${INDEX_URL}/project/${project_id}" > /dev/null 2>&1 || true
     echo -e "${GREEN}✓${NC}"
 
-    # Check if settings.local.json is our template
-    echo -n "  Checking settings............. "
-    if [ -f "$project_root/.claude/settings.local.json" ]; then
-        # Compare to template
-        local template_hash=$(md5sum "$AOA_DATA/settings.template.json" 2>/dev/null | cut -d' ' -f1)
-        local settings_hash=$(md5sum "$project_root/.claude/settings.local.json" 2>/dev/null | cut -d' ' -f1)
+    # Restore settings from backup if available
+    echo -n "  Restoring settings............ "
+    # Find the most recent backup
+    local backup=$(ls -t "$project_root/.claude/settings.local.json.pre-aoa-"* 2>/dev/null | head -1)
 
-        if [ "$template_hash" = "$settings_hash" ]; then
-            rm -f "$project_root/.claude/settings.local.json"
-            echo -e "${GREEN}removed${NC}"
+    if [ -f "$project_root/.claude/settings.local.json" ]; then
+        if [ -n "$backup" ]; then
+            # Backup exists - restore original settings
+            mv "$backup" "$project_root/.claude/settings.local.json"
+            # Clean up any other backups
+            rm -f "$project_root/.claude/settings.local.json.pre-aoa-"* 2>/dev/null
+            echo -e "${GREEN}restored from backup${NC}"
         else
-            echo -e "${YELLOW}preserved (customized)${NC}"
+            # No backup - check if it's just our template
+            local template_hash=$(md5sum "$AOA_DATA/settings.template.json" 2>/dev/null | cut -d' ' -f1)
+            local settings_hash=$(md5sum "$project_root/.claude/settings.local.json" 2>/dev/null | cut -d' ' -f1)
+
+            if [ "$template_hash" = "$settings_hash" ]; then
+                rm -f "$project_root/.claude/settings.local.json"
+                echo -e "${GREEN}removed${NC}"
+            else
+                echo -e "${YELLOW}preserved (has customizations)${NC}"
+            fi
         fi
     else
         echo -e "${DIM}not found${NC}"
