@@ -314,7 +314,35 @@ echo -e "  ${DIM}  3. Build the aOa Docker image${NC}"
 echo -e "  ${DIM}  4. Start aOa services${NC}"
 echo -e "  ${DIM}  5. Install the aoa CLI${NC}"
 echo
-echo -n -e "  ${YELLOW}Press Enter to begin...${NC}"
+
+# Choose deployment mode (unless already set via --compose flag)
+if [ "$USE_COMPOSE" -eq 0 ]; then
+    echo -e "  ${CYAN}${BOLD}Choose deployment mode:${NC}"
+    echo
+    echo -e "  ${BOLD}[1]${NC} Single Container ${GREEN}(Recommended)${NC}"
+    echo -e "      ${DIM}• One container, one port (8080)${NC}"
+    echo -e "      ${DIM}• All services via supervisord${NC}"
+    echo -e "      ${DIM}• Simpler, fewer resources${NC}"
+    echo
+    echo -e "  ${BOLD}[2]${NC} Docker Compose"
+    echo -e "      ${DIM}• 5 separate containers${NC}"
+    echo -e "      ${DIM}• Network isolation between services${NC}"
+    echo -e "      ${DIM}• Better for debugging/development${NC}"
+    echo
+    echo -n -e "  ${YELLOW}Enter choice [1/2]: ${NC}"
+    read -r mode_choice
+    echo
+    if [ "$mode_choice" = "2" ]; then
+        USE_COMPOSE=1
+        echo -e "  ${DIM}Using Docker Compose mode${NC}"
+    else
+        USE_COMPOSE=0
+        echo -e "  ${DIM}Using single container mode${NC}"
+    fi
+    echo
+fi
+
+echo -n -e "  ${YELLOW}Press Enter to continue...${NC}"
 read -r
 echo
 
@@ -542,22 +570,20 @@ CODEBASE_PATH="${CODEBASE_PATH:-$(pwd)}"
 echo -e "  ${DIM}Indexing: ${CODEBASE_PATH}${NC}"
 echo
 
+# Clean up ANY existing aOa containers (both modes) to prevent conflicts
+docker compose down 2>/dev/null || true
+docker stop aoa 2>/dev/null || true
+docker rm aoa 2>/dev/null || true
+
+# Ensure directories exist before Docker starts
+mkdir -p "$SCRIPT_DIR/repos" "$SCRIPT_DIR/.aoa"
+
 if [ "$USE_COMPOSE" -eq 1 ]; then
-    # Stop existing services if running
-    docker compose down 2>/dev/null || true
-    # Ensure directories exist before Docker starts
-    mkdir -p "$SCRIPT_DIR/repos" "$SCRIPT_DIR/.aoa"
-    # Start all services
+    # Start all services via docker-compose
     export CODEBASE_PATH
     docker compose up -d
 else
-    # Stop existing container if running
-    docker stop aoa 2>/dev/null || true
-    docker rm aoa 2>/dev/null || true
-    # Ensure repos directory exists with correct ownership BEFORE Docker starts
-    mkdir -p "${SCRIPT_DIR}/repos" "${SCRIPT_DIR}/.aoa"
-
-    # Start unified container with all mounts
+    # Start unified single container
     docker run -d \
         --name aoa \
         -p 8080:8080 \
