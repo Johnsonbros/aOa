@@ -146,8 +146,9 @@ EOFHOME
 EOFWHITELIST
     fi
 
-    # README.md - explains the folder
-    cat > "$project_root/.aoa/README.md" << 'EOFREADME'
+    # README.md - explains the folder (only if not present)
+    if [ ! -f "$project_root/.aoa/README.md" ]; then
+        cat > "$project_root/.aoa/README.md" << 'EOFREADME'
 # .aoa - aOa Project Link
 
 This folder links this project to your global aOa installation.
@@ -177,6 +178,7 @@ aoa remove           # Remove aOa from this project
 To change aOa settings (port, confidence threshold, etc.),
 edit the config.json in your global aOa installation.
 EOFREADME
+    fi
     echo -e "${GREEN}✓${NC}"
 
     # Copy or merge settings template
@@ -302,10 +304,12 @@ cmd_remove() {
     rm -f "$project_root/.claude/agents/aoa-"* 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
-    # Remove .aoa/ folder (and legacy .aoa-config if present)
-    echo -n "  Removing .aoa/ config......... "
-    rm -rf "$project_root/.aoa" 2>/dev/null || true
+    # Remove project-specific home.json (leave global config.json intact)
+    echo -n "  Removing .aoa/home.json....... "
+    rm -f "$project_root/.aoa/home.json" 2>/dev/null || true
     rm -f "$project_root/.aoa-config" 2>/dev/null || true  # Legacy cleanup
+    # Remove .aoa/ folder only if empty (no global config present)
+    rmdir "$project_root/.aoa" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Remove from projects.json
