@@ -461,12 +461,12 @@ if [ "$USE_COMPOSE" -eq 1 ]; then
     # Copy docker-compose.yml to global location
     cp "$SCRIPT_DIR/docker-compose.yml" "$AOA_HOME/"
     cd "$AOA_HOME"
-    docker compose build --quiet
+    docker compose build --no-cache --quiet
 else
     echo -e "  ${DIM}Building unified Docker image...${NC}"
     echo -e "  ${DIM}This may take a minute on first run.${NC}"
     echo
-    docker build -t aoa "$AOA_HOME" --quiet
+    docker build --no-cache -t aoa "$AOA_HOME" --quiet
 fi
 
 echo
