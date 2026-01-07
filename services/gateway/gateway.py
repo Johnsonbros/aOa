@@ -96,6 +96,11 @@ ROUTES = {
     # Memory API (Phase 5) - Dynamic working context
     "/memory": ("index", "/memory"),
 
+    # Project management routes (Global mode)
+    "/project/register": ("index", "/project/register"),
+    "/project/*": ("index", "/project/*"),
+    "/projects": ("index", "/projects"),
+
     # Status service routes
     "/status": ("status", "/status"),
     "/status/json": ("status", "/status/json"),
@@ -105,6 +110,8 @@ ROUTES = {
     "/history": ("status", "/history"),
     "/event": ("status", "/event"),
     "/weekly/reset": ("status", "/weekly/reset"),
+    "/baseline": ("status", "/baseline"),
+    "/sync/subagents": ("status", "/sync/subagents"),
 
     # Git proxy routes
     "/git/clone": ("git-proxy", "/clone"),

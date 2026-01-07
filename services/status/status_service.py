@@ -123,8 +123,9 @@ class SubagentSyncer:
     def __init__(self, redis_client, intent_url: str = "http://localhost:9999"):
         self.redis = redis_client
         self.intent_url = intent_url
-        self.claude_dir = Path(os.environ.get('CLAUDE_SESSIONS',
-                               os.path.expanduser('~/.claude/projects')))
+        # Use CLAUDE_SESSIONS env var (Docker mount), fallback to host path
+        claude_base = os.environ.get('CLAUDE_SESSIONS', os.path.expanduser('~/.claude'))
+        self.claude_dir = Path(claude_base) / 'projects'
         self.lock = threading.Lock()
         self.last_sync = 0
         self.sync_interval = 5  # seconds
@@ -810,7 +811,7 @@ def get_baseline():
     Returns aggregated token usage, tool calls, and potential savings
     if aOa had been used instead of Grep/Glob.
     """
-    baseline = manager.redis.hgetall('aoa:baseline')
+    baseline = manager.r.hgetall('aoa:baseline')
 
     if not baseline:
         return jsonify({
@@ -846,7 +847,7 @@ def main():
     # Initialize subagent syncer
     try:
         syncer = SubagentSyncer(
-            redis_client=manager.redis,
+            redis_client=manager.r,
             intent_url="http://localhost:9999"
         )
         print(f"Subagent syncer initialized")

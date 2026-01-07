@@ -41,7 +41,8 @@ RUN pip install --no-cache-dir \
     flask \
     watchdog \
     redis \
-    pydantic
+    pydantic \
+    requests
 
 WORKDIR /app
 
@@ -84,7 +85,7 @@ stderr_logfile=/var/log/supervisor/index-error.log
 [program:status]
 command=python /app/status/status_service.py
 directory=/app/status
-environment=REDIS_URL="redis://localhost:6379/0",STATUS_PORT="9998"
+environment=REDIS_URL="redis://localhost:6379/0",STATUS_PORT="9998",CLAUDE_SESSIONS="/claude-sessions"
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/status.log

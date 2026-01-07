@@ -771,11 +771,28 @@ intent_index: Optional[IntentIndex] = None
 @app.route('/health')
 def health():
     local = manager.get_local()
-    return jsonify({
+
+    response = {
         'status': 'ok',
-        'local': local.get_stats(),
+        'mode': 'global' if manager.global_mode else 'legacy',
         'repos': [r.get_stats() for r in manager.repos.values()]
-    })
+    }
+
+    if local:
+        response['local'] = local.get_stats()
+
+    if manager.projects:
+        response['projects'] = [
+            {
+                'id': pid,
+                'name': idx.name,
+                'files': len(idx.files),
+                'symbols': len(idx.inverted_index)
+            }
+            for pid, idx in manager.projects.items()
+        ]
+
+    return jsonify(response)
 
 @app.route('/symbol')
 def symbol_search():

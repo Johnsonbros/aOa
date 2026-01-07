@@ -1048,11 +1048,25 @@ cmd_health() {
     echo -n "Symbol/Intent (${INDEX_URL}): "
     if curl -s --connect-timeout 2 "${INDEX_URL}/health" > /dev/null 2>&1; then
         local idx_health=$(curl -s "${INDEX_URL}/health")
-        local local_files=$(echo "$idx_health" | jq -r '.local.files')
-        local local_symbols=$(echo "$idx_health" | jq -r '.local.symbols')
-        local repo_count=$(echo "$idx_health" | jq '.repos | length')
-        echo -e "${GREEN}✓${NC} ${local_files} files, ${local_symbols} symbols (local)"
-        if [ "$repo_count" != "0" ]; then
+        local mode=$(echo "$idx_health" | jq -r '.mode // "legacy"')
+
+        # Handle both legacy and global modes
+        if [ "$mode" = "global" ]; then
+            local project_count=$(echo "$idx_health" | jq '.projects | length // 0')
+            if [ "$project_count" -gt 0 ]; then
+                echo -e "${GREEN}✓${NC} ${project_count} project(s) indexed (global mode)"
+            else
+                echo -e "${YELLOW}!${NC} Global mode ${DIM}(no projects registered - run 'aoa init')${NC}"
+            fi
+        else
+            # Legacy mode
+            local local_files=$(echo "$idx_health" | jq -r '.local.files // 0')
+            local local_symbols=$(echo "$idx_health" | jq -r '.local.symbols // 0')
+            echo -e "${GREEN}✓${NC} ${local_files} files, ${local_symbols} symbols (local)"
+        fi
+
+        local repo_count=$(echo "$idx_health" | jq '.repos | length // 0')
+        if [ "$repo_count" != "0" ] && [ "$repo_count" != "null" ]; then
             echo -e "                              ${DIM}+ ${repo_count} knowledge repos${NC}"
         fi
     else
