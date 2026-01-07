@@ -30,6 +30,114 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # =============================================================================
+# Uninstall Mode
+# =============================================================================
+
+if [[ "$1" == "--uninstall" ]]; then
+    echo -e "${CYAN}${BOLD}"
+    echo "  ╔═══════════════════════════════════════════════════════════════╗"
+    echo "  ║                                                               ║"
+    echo "  ║     ⚡ aOa Uninstaller                                        ║"
+    echo "  ║                                                               ║"
+    echo "  ╚═══════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+    echo
+
+    echo -e "${YELLOW}${BOLD}The following will be removed:${NC}"
+    echo
+
+    # Check what exists
+    FOUND_ITEMS=0
+
+    # 1. Docker container and image
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^aoa$"; then
+        echo -e "  ${DIM}•${NC} Docker container: ${BOLD}aoa${NC}"
+        FOUND_ITEMS=$((FOUND_ITEMS + 1))
+    fi
+    if docker images --format '{{.Repository}}' 2>/dev/null | grep -q "^aoa$"; then
+        echo -e "  ${DIM}•${NC} Docker image: ${BOLD}aoa${NC}"
+        FOUND_ITEMS=$((FOUND_ITEMS + 1))
+    fi
+
+    # 2. .claude directory
+    if [ -d ".claude" ]; then
+        echo -e "  ${DIM}•${NC} Claude hooks: ${BOLD}.claude/${NC} ${DIM}(hooks, skills, settings)${NC}"
+        FOUND_ITEMS=$((FOUND_ITEMS + 1))
+    fi
+
+    # 3. CLI
+    if [ -f "/usr/local/bin/aoa" ]; then
+        echo -e "  ${DIM}•${NC} CLI: ${BOLD}/usr/local/bin/aoa${NC}"
+        FOUND_ITEMS=$((FOUND_ITEMS + 1))
+    fi
+    if [ -f "$HOME/bin/aoa" ]; then
+        echo -e "  ${DIM}•${NC} CLI: ${BOLD}~/bin/aoa${NC}"
+        FOUND_ITEMS=$((FOUND_ITEMS + 1))
+    fi
+
+    echo
+
+    if [ $FOUND_ITEMS -eq 0 ]; then
+        echo -e "  ${DIM}Nothing to uninstall - aOa not found.${NC}"
+        echo
+        exit 0
+    fi
+
+    echo -n -e "${YELLOW}Proceed with uninstall? [y/N] ${NC}"
+    read -r response
+    echo
+
+    if [[ ! "$response" =~ ^[Yy]$ ]]; then
+        echo -e "  ${DIM}Uninstall cancelled.${NC}"
+        echo
+        exit 0
+    fi
+
+    # Perform uninstall
+    echo -e "${CYAN}${BOLD}Removing aOa...${NC}"
+    echo
+
+    # 1. Stop and remove Docker container
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^aoa$"; then
+        echo -n "  Stopping container............ "
+        docker stop aoa > /dev/null 2>&1 || true
+        docker rm aoa > /dev/null 2>&1 || true
+        echo -e "${GREEN}✓${NC}"
+    fi
+
+    # 2. Remove Docker image
+    if docker images --format '{{.Repository}}' 2>/dev/null | grep -q "^aoa$"; then
+        echo -n "  Removing image................ "
+        docker rmi aoa > /dev/null 2>&1 || true
+        echo -e "${GREEN}✓${NC}"
+    fi
+
+    # 3. Remove .claude directory
+    if [ -d ".claude" ]; then
+        echo -n "  Removing .claude/............. "
+        rm -rf .claude
+        echo -e "${GREEN}✓${NC}"
+    fi
+
+    # 4. Remove CLI
+    if [ -f "/usr/local/bin/aoa" ]; then
+        echo -n "  Removing /usr/local/bin/aoa... "
+        rm -f /usr/local/bin/aoa 2>/dev/null || sudo rm -f /usr/local/bin/aoa
+        echo -e "${GREEN}✓${NC}"
+    fi
+    if [ -f "$HOME/bin/aoa" ]; then
+        echo -n "  Removing ~/bin/aoa............ "
+        rm -f "$HOME/bin/aoa"
+        echo -e "${GREEN}✓${NC}"
+    fi
+
+    echo
+    echo -e "  ${GREEN}${BOLD}✓ aOa uninstalled successfully${NC}"
+    echo
+    exit 0
+fi
+
+# =============================================================================
 # Header
 # =============================================================================
 
