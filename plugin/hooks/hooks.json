@@ -5,12 +5,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$PLUGIN_DIR/hooks/aoa-intent-summary.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/aoa-intent-summary.py\"",
             "timeout": 2
           },
           {
             "type": "command",
-            "command": "python3 \"$PLUGIN_DIR/hooks/aoa-predict-context.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/aoa-predict-context.py\"",
             "timeout": 3
           }
         ]
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$PLUGIN_DIR/hooks/aoa-intent-prefetch.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/aoa-intent-prefetch.py\"",
             "timeout": 2
           }
         ]
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$PLUGIN_DIR/hooks/aoa-intent-capture.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/aoa-intent-capture.py\"",
             "timeout": 5
           }
         ]
@@ -43,6 +43,6 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bash \"$PLUGIN_DIR/hooks/aoa-status-line.sh\""
+    "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/aoa-status-line.sh\""
   }
 }
