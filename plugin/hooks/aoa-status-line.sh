@@ -13,13 +13,13 @@ set -uo pipefail
 AOA_URL="${AOA_URL:-http://localhost:8080}"
 MIN_INTENTS=30
 
-# Find AOA data directory from .aoa-config
+# Find AOA data directory from .aoa/home.json
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$HOOK_DIR")")"
-AOA_CONFIG="$PROJECT_ROOT/.aoa-config"
+AOA_HOME_FILE="$PROJECT_ROOT/.aoa/home.json"
 
-if [ -f "$AOA_CONFIG" ]; then
-    AOA_DATA=$(jq -r '.data_dir' "$AOA_CONFIG" 2>/dev/null)
+if [ -f "$AOA_HOME_FILE" ]; then
+    AOA_DATA=$(jq -r '.data_dir' "$AOA_HOME_FILE" 2>/dev/null)
 else
     # Fallback: use /tmp
     AOA_DATA="${AOA_DATA:-/tmp/aoa}"

@@ -153,8 +153,9 @@ if [[ "$1" == "--uninstall" ]]; then
     # 2. Remove Docker images (both unified 'aoa' and compose 'aoa-*')
     echo -n "  Removing images............... "
     # Get all aOa images (including dangling/intermediate)
+    # Pattern matches: aoa, aoa:tag, aoa-service, aoa-service:tag
     AOA_IMAGE_IDS=$(docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | \
-                    grep -E "^aoa([-_]|$)" | awk '{print $2}' || true)
+                    grep -E "^aoa([-_:]|$)" | awk '{print $2}' || true)
 
     if [ -n "$AOA_IMAGE_IDS" ]; then
         # Force remove all images (even if containers exist)
