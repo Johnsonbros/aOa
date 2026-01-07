@@ -96,7 +96,6 @@ services:
     build:
       context: ./services/proxy
       dockerfile: Dockerfile
-    user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./repos:/repos:rw
       - ./.aoa:/config:ro

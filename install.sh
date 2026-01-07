@@ -545,20 +545,21 @@ echo
 if [ "$USE_COMPOSE" -eq 1 ]; then
     # Stop existing services if running
     docker compose down 2>/dev/null || true
-    # Start all services with current user's UID/GID
+    # Ensure directories exist before Docker starts
+    mkdir -p "$SCRIPT_DIR/repos" "$SCRIPT_DIR/.aoa"
+    # Start all services
     export CODEBASE_PATH
-    export UID=$(id -u)
-    export GID=$(id -g)
     docker compose up -d
 else
     # Stop existing container if running
     docker stop aoa 2>/dev/null || true
     docker rm aoa 2>/dev/null || true
+    # Ensure repos directory exists with correct ownership BEFORE Docker starts
+    mkdir -p "${SCRIPT_DIR}/repos" "${SCRIPT_DIR}/.aoa"
+
     # Start unified container with all mounts
-    # Use current user's UID/GID so created files have correct ownership
     docker run -d \
         --name aoa \
-        --user "$(id -u):$(id -g)" \
         -p 8080:8080 \
         -v "${CODEBASE_PATH}:/codebase:ro" \
         -v "${SCRIPT_DIR}/repos:/repos:rw" \
