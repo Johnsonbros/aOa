@@ -224,17 +224,20 @@ if [ "$INTENTS" -ge 1000 ]; then
     fi
 fi
 
-# Middle section: savings OR speed+results
+# Middle section: savings OR speed+hits
 if [ "$TOKENS_SAVED" -gt 0 ] 2>/dev/null; then
     # Have savings - show them
     TOKENS_SAVED_FMT=$(format_tokens $TOKENS_SAVED)
     TIME_SAVED_FMT=$(format_time $TIME_SAVED_SEC_INT)
     MIDDLE="${GREEN}↓${TOKENS_SAVED_FMT}${RESET} ${GREEN}⚡${TIME_SAVED_FMT}${RESET} saved"
 else
-    # No savings yet - show speed and results
-    RESULTS=${ROLLING_HITS:-0}
-    [ "$RESULTS" -eq 0 ] && RESULTS=${EVALUATED:-0}
-    MIDDLE="${GREEN}${RESPONSE_MS}ms${RESET} ${DIM}•${RESET} ${RESULTS} results"
+    # No savings yet - show speed and prediction hits
+    HITS=${ROLLING_HITS:-0}
+    if [ "$HITS" -gt 0 ]; then
+        MIDDLE="${GREEN}${RESPONSE_MS}ms${RESET} ${DIM}•${RESET} ${HITS} hits"
+    else
+        MIDDLE="${GREEN}${RESPONSE_MS}ms${RESET} ${DIM}•${RESET} ready"
+    fi
 fi
 
 # === OUTPUT ===
