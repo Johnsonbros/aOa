@@ -354,19 +354,28 @@ echo -e "${GREEN}✓${NC}"
 echo -n "  Creating settings template.... "
 cat > "$AOA_DATA/settings.template.json" << 'EOFCONFIG'
 {
+  "_comment": "Permissions are pre-approved (no prompts). Patterns use glob syntax: 'command:*' means 'command followed by anything'",
   "permissions": {
     "allow": [
       "Bash(aoa search:*)",
       "Bash(aoa health:*)",
       "Bash(aoa help:*)",
       "Bash(aoa metrics:*)",
+      "Bash(aoa baseline:*)",
       "Bash(aoa intent:*)",
       "Bash(aoa services:*)",
       "Bash(aoa changes:*)",
-      "Bash(aoa why:*)",
+      "Bash(aoa files:*)",
+      "Bash(aoa multi:*)",
+      "Bash(aoa projects:*)",
       "Bash(docker-compose:*)",
       "Bash(docker ps:*)",
       "Bash(docker logs:*)",
+      "Bash(docker run:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker build:*)",
       "Bash(curl:*)",
       "Bash(ls:*)"
     ]

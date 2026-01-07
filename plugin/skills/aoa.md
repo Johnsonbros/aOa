@@ -4,6 +4,17 @@
 
 ---
 
+## ⚠️ IMPORTANT: Command Syntax
+
+**aOa commands use SPACES, not colons:**
+
+✅ **Correct:** `aoa search "term"`
+❌ **Wrong:** `aoa search:"term"`
+
+The permissions in `settings.local.json` like `Bash(aoa search:*)` use colon for glob pattern matching, but actual commands use standard bash syntax with spaces.
+
+---
+
 ## Quick Reference
 
 | Command | Use For | Speed |
