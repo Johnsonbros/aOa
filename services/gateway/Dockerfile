@@ -6,6 +6,4 @@ RUN pip install --no-cache-dir fastapi uvicorn httpx
 
 COPY gateway.py .
 
-CM
-
 CMD ["python", "gateway.py"]

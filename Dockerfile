@@ -4,12 +4,18 @@
 # Single image containing all aOa services
 #
 # Build:   docker build -t aoa .
-# Run:     docker run -d -p 8080:8080 -v $(pwd):/codebase aoa
+# Run:     docker run -d -p 8080:8080 \
+#            -v $(pwd):/codebase:ro \
+#            -v ./repos:/repos:ro \
+#            -v ./.aoa:/config:rw \
+#            -v ~/.claude:/claude-sessions:ro \
+#            aoa
 #
 # Services included:
 #   - Gateway (port 8080, exposed)
 #   - Index (internal)
 #   - Status (internal)
+#   - Proxy (internal)
 #   - Redis (internal)
 # =============================================================================
 
@@ -69,7 +75,7 @@ stderr_logfile=/var/log/supervisor/redis-error.log
 [program:index]
 command=python /app/index/indexer.py
 directory=/app/index
-environment=CODEBASE_ROOT="/codebase",REDIS_URL="redis://localhost:6379/0",PORT="9999"
+environment=CODEBASE_ROOT="/codebase",REPOS_ROOT="/repos",CONFIG_DIR="/config",CLAUDE_SESSIONS="/claude-sessions",REDIS_URL="redis://localhost:6379/0",PORT="9999"
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/index.log
@@ -84,18 +90,27 @@ autorestart=true
 stdout_logfile=/var/log/supervisor/status.log
 stderr_logfile=/var/log/supervisor/status-error.log
 
+[program:proxy]
+command=python /app/proxy/git_proxy.py
+directory=/app/proxy
+environment=REPOS_ROOT="/repos",WHITELIST_FILE="/config/whitelist.txt",MAX_REPO_SIZE_MB="500",CLONE_TIMEOUT="300",PROXY_PORT="9997"
+autostart=true
+autorestart=true
+stdout_logfile=/var/log/supervisor/proxy.log
+stderr_logfile=/var/log/supervisor/proxy-error.log
+
 [program:gateway]
 command=python /app/gateway/gateway.py
 directory=/app/gateway
-environment=INDEX_URL="http://localhost:9999",STATUS_URL="http://localhost:9998"
+environment=INDEX_URL="http://localhost:9999",STATUS_URL="http://localhost:9998",PROXY_URL="http://localhost:9997"
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/gateway.log
 stderr_logfile=/var/log/supervisor/gateway-error.log
 EOF
 
-# Create data directories
-RUN mkdir -p /codebase /config /var/log/aoa
+# Create data directories (matching docker-compose volumes)
+RUN mkdir -p /codebase /repos /config /claude-sessions /var/log/aoa
 
 # Expose only the gateway port
 EXPOSE 8080

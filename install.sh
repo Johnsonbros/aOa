@@ -30,6 +30,18 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # =============================================================================
+# Mode Selection
+# =============================================================================
+# Default: unified (single container, simpler)
+# --compose: multi-container with docker-compose (full isolation)
+
+USE_COMPOSE=0
+if [[ "$1" == "--compose" ]]; then
+    USE_COMPOSE=1
+    shift
+fi
+
+# =============================================================================
 # Uninstall Mode
 # =============================================================================
 
@@ -49,14 +61,23 @@ if [[ "$1" == "--uninstall" ]]; then
     # Check what exists
     FOUND_ITEMS=0
 
-    # 1. Docker compose services
+    # 1. Docker containers/services (check both unified and compose)
     cd "$SCRIPT_DIR"
-    AOA_CONTAINERS=$(docker compose ps -q 2>/dev/null | wc -l)
-    if [ "$AOA_CONTAINERS" -gt 0 ]; then
-        echo -e "  ${DIM}•${NC} Docker services: ${BOLD}${AOA_CONTAINERS} running${NC}"
+    AOA_UNIFIED=0
+    AOA_COMPOSE=0
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^aoa$"; then
+        AOA_UNIFIED=1
+        echo -e "  ${DIM}•${NC} Docker container: ${BOLD}aoa${NC} (unified)"
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
-    AOA_IMAGES=$(docker images --format '{{.Repository}}' 2>/dev/null | grep -cE "^aoa[-_]" || true)
+    AOA_COMPOSE_COUNT=$(docker compose ps -q 2>/dev/null | wc -l)
+    if [ "$AOA_COMPOSE_COUNT" -gt 0 ]; then
+        AOA_COMPOSE=1
+        echo -e "  ${DIM}•${NC} Docker services: ${BOLD}${AOA_COMPOSE_COUNT} running${NC} (compose)"
+        FOUND_ITEMS=$((FOUND_ITEMS + 1))
+    fi
+    # Check for images (both unified 'aoa' and compose 'aoa-*')
+    AOA_IMAGES=$(docker images --format '{{.Repository}}' 2>/dev/null | grep -cE "^aoa([-_]|$)" || true)
     if [ "$AOA_IMAGES" -gt 0 ]; then
         echo -e "  ${DIM}•${NC} Docker images: ${BOLD}${AOA_IMAGES} images${NC}"
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
@@ -195,17 +216,23 @@ EOFTEMPLATE
     echo -e "${CYAN}${BOLD}Removing aOa...${NC}"
     echo
 
-    # 1. Stop and remove Docker services
-    if docker compose ps -q 2>/dev/null | grep -q .; then
+    # 1. Stop and remove Docker containers/services (both modes)
+    if [ "$AOA_UNIFIED" -eq 1 ]; then
+        echo -n "  Stopping container............ "
+        docker stop aoa > /dev/null 2>&1 || true
+        docker rm aoa > /dev/null 2>&1 || true
+        echo -e "${GREEN}✓${NC}"
+    fi
+    if [ "$AOA_COMPOSE" -eq 1 ]; then
         echo -n "  Stopping services............. "
         docker compose down --volumes --remove-orphans > /dev/null 2>&1 || true
         echo -e "${GREEN}✓${NC}"
     fi
 
-    # 2. Remove Docker images (compose-built images)
-    if docker images --format '{{.Repository}}' 2>/dev/null | grep -qE "^aoa[-_]"; then
+    # 2. Remove Docker images (both unified 'aoa' and compose 'aoa-*')
+    if docker images --format '{{.Repository}}' 2>/dev/null | grep -qE "^aoa([-_]|$)"; then
         echo -n "  Removing images............... "
-        docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "^aoa[-_]" | xargs -r docker rmi > /dev/null 2>&1 || true
+        docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "^aoa([-_]|$)" | xargs -r docker rmi > /dev/null 2>&1 || true
         echo -e "${GREEN}✓${NC}"
     fi
 
@@ -467,14 +494,23 @@ echo
 echo -e "${CYAN}${BOLD}[3/5] Building aOa Services${NC}"
 echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
 echo
-echo -e "  ${DIM}Building Docker images for all services...${NC}"
-echo -e "  ${DIM}This may take a minute on first run.${NC}"
-echo
 
 cd "$SCRIPT_DIR"
-docker compose build --quiet
+
+if [ "$USE_COMPOSE" -eq 1 ]; then
+    echo -e "  ${DIM}Building Docker images (compose mode)...${NC}"
+    echo -e "  ${DIM}This may take a minute on first run.${NC}"
+    echo
+    docker compose build --quiet
+else
+    echo -e "  ${DIM}Building unified Docker image...${NC}"
+    echo -e "  ${DIM}This may take a minute on first run.${NC}"
+    echo
+    docker build -t aoa "$SCRIPT_DIR" --quiet
+fi
+
 echo
-echo -e "  ${GREEN}✓ Docker images built${NC}"
+echo -e "  ${GREEN}✓ Docker image(s) built${NC}"
 echo
 sleep 1
 
@@ -486,16 +522,31 @@ echo -e "${CYAN}${BOLD}[4/5] Starting aOa Services${NC}"
 echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
 echo
 
-# Stop existing services if running
-docker compose down 2>/dev/null || true
-
-# Set codebase path for docker-compose
-export CODEBASE_PATH="${CODEBASE_PATH:-$(pwd)}"
+# Set codebase path
+CODEBASE_PATH="${CODEBASE_PATH:-$(pwd)}"
 echo -e "  ${DIM}Indexing: ${CODEBASE_PATH}${NC}"
 echo
 
-# Start all services
-docker compose up -d
+if [ "$USE_COMPOSE" -eq 1 ]; then
+    # Stop existing services if running
+    docker compose down 2>/dev/null || true
+    # Start all services
+    export CODEBASE_PATH
+    docker compose up -d
+else
+    # Stop existing container if running
+    docker stop aoa 2>/dev/null || true
+    docker rm aoa 2>/dev/null || true
+    # Start unified container with all mounts
+    docker run -d \
+        --name aoa \
+        -p 8080:8080 \
+        -v "${CODEBASE_PATH}:/codebase:ro" \
+        -v "${SCRIPT_DIR}/repos:/repos:ro" \
+        -v "${SCRIPT_DIR}/.aoa:/config:rw" \
+        -v "${HOME}/.claude:/claude-sessions:ro" \
+        aoa > /dev/null
+fi
 
 echo -n "  Starting services"
 for i in {1..5}; do
