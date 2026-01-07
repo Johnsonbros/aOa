@@ -111,13 +111,24 @@ cmd_init() {
     cp "$AOA_HOME/skills/"*.md "$project_root/.claude/skills/" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
-    # Copy settings template
+    # Copy or merge settings template
     echo -n "  Creating settings............. "
     if [ ! -f "$project_root/.claude/settings.local.json" ]; then
+        # No existing settings - copy template
         cp "$AOA_HOME/settings.template.json" "$project_root/.claude/settings.local.json"
         echo -e "${GREEN}✓${NC}"
     else
-        echo -e "${YELLOW}exists (preserved)${NC}"
+        # Existing settings - check if statusLine needs to be added
+        if ! jq -e '.statusLine' "$project_root/.claude/settings.local.json" > /dev/null 2>&1; then
+            # statusLine missing - merge it in
+            local status_line=$(jq '.statusLine' "$AOA_HOME/settings.template.json")
+            jq --argjson sl "$status_line" '. + {statusLine: $sl}' \
+                "$project_root/.claude/settings.local.json" > "$project_root/.claude/settings.local.json.tmp"
+            mv "$project_root/.claude/settings.local.json.tmp" "$project_root/.claude/settings.local.json"
+            echo -e "${GREEN}✓${NC} ${DIM}(merged statusLine)${NC}"
+        else
+            echo -e "${YELLOW}exists${NC}"
+        fi
     fi
 
     # Register project in projects.json
