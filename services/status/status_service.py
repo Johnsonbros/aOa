@@ -4,22 +4,26 @@ aOa Status Service
 Real-time Claude Code session monitoring backed by Redis.
 
 Tracks: model, tokens, cache, context, cost, weekly usage, time.
+Now also syncs subagent activity from Claude session logs.
 
 Usage:
-    pip install flask redis
+    pip install flask redis requests
     python status_service.py
 """
 
 import os
+import re
 import json
 import time
 import threading
+from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict, field
 from flask import Flask, jsonify, request, Response
 
 import redis
+import requests
 
 app = Flask(__name__)
 
@@ -30,12 +34,24 @@ app = Flask(__name__)
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 PORT = int(os.environ.get('STATUS_PORT', 9998))
 
-# Model pricing (per 1M tokens) - as of late 2024
+# Global instances (initialized in main())
+manager = None
+syncer = None
+
+# Model pricing (per 1M tokens) - as of January 2026
 PRICING = {
+    # Latest models (4.5 generation)
+    'claude-opus-4.5': {'input': 15.00, 'output': 75.00, 'cache_read': 1.50, 'cache_write': 18.75},
+    'claude-sonnet-4.5': {'input': 3.00, 'output': 15.00, 'cache_read': 0.30, 'cache_write': 3.75},
+    'claude-haiku-4': {'input': 0.25, 'output': 1.25, 'cache_read': 0.025, 'cache_write': 0.3125},
+
+    # Legacy 4.0 models
     'claude-opus-4': {'input': 15.00, 'output': 75.00, 'cache_read': 1.50, 'cache_write': 18.75},
     'claude-sonnet-4': {'input': 3.00, 'output': 15.00, 'cache_read': 0.30, 'cache_write': 3.75},
-    'claude-haiku-4': {'input': 0.25, 'output': 1.25, 'cache_read': 0.025, 'cache_write': 0.3125},
+
     # Aliases
+    'opus-4.5': {'input': 15.00, 'output': 75.00, 'cache_read': 1.50, 'cache_write': 18.75},
+    'sonnet-4.5': {'input': 3.00, 'output': 15.00, 'cache_read': 0.30, 'cache_write': 3.75},
     'opus-4': {'input': 15.00, 'output': 75.00, 'cache_read': 1.50, 'cache_write': 18.75},
     'sonnet-4': {'input': 3.00, 'output': 15.00, 'cache_read': 0.30, 'cache_write': 3.75},
     'haiku-4': {'input': 0.25, 'output': 1.25, 'cache_read': 0.025, 'cache_write': 0.3125},
@@ -59,6 +75,317 @@ class Keys:
     DAILY = "aoa:daily:{date}"        # Hash: daily stats
     WEEKLY = "aoa:weekly"             # Hash: weekly tracking
     PROJECT = "aoa:project:{name}"    # Hash: per-project totals
+    AGENT_SYNC = "aoa:agent_sync"     # Hash: agent file positions
+
+
+# =============================================================================
+# Subagent Sync - Intent patterns for tagging
+# =============================================================================
+
+INTENT_PATTERNS = [
+    (r'auth|login|session|oauth|jwt|password', ['authentication', 'security']),
+    (r'test[s]?[/_]|_test\.|\bspec[s]?\b|pytest|unittest', ['testing']),
+    (r'config|settings|\.env|\.yaml|\.yml|\.json', ['configuration']),
+    (r'api|endpoint|route|handler|controller', ['api']),
+    (r'index|search|query|grep|find', ['search']),
+    (r'model|schema|entity|db|database|migration|sql', ['data']),
+    (r'component|view|template|page|ui|style|css|html', ['frontend']),
+    (r'deploy|docker|k8s|ci|cd|pipeline|github', ['devops']),
+    (r'error|exception|catch|throw|raise|fail', ['errors']),
+    (r'log|debug|trace|print|console', ['logging']),
+    (r'cache|redis|memory|store', ['caching']),
+    (r'async|await|promise|thread|concurrent', ['async']),
+    (r'hook|plugin|extension|middleware', ['hooks']),
+    (r'doc|readme|comment|docstring', ['documentation']),
+    (r'util|helper|common|shared|lib', ['utilities']),
+    (r'ranking|score|predict|confidence', ['ranking']),
+]
+
+# Tool to tag mapping
+TOOL_TAGS = {
+    'Read': ['reading'],
+    'Edit': ['editing'],
+    'Write': ['writing'],
+    'Grep': ['searching'],
+    'Glob': ['searching'],
+    'Bash': ['executing'],
+}
+
+
+class SubagentSyncer:
+    """
+    Syncs subagent activity from Claude session logs to aOa intent tracking.
+
+    Watches ~/.claude/projects/*/agent-*.jsonl files, extracts tool_use events,
+    infers tags, and POSTs to /intent endpoint.
+    """
+
+    def __init__(self, redis_client, intent_url: str = "http://localhost:9999"):
+        self.redis = redis_client
+        self.intent_url = intent_url
+        self.claude_dir = Path(os.environ.get('CLAUDE_SESSIONS',
+                               os.path.expanduser('~/.claude/projects')))
+        self.lock = threading.Lock()
+        self.last_sync = 0
+        self.sync_interval = 5  # seconds
+
+    def get_file_position(self, file_path: str) -> int:
+        """Get last read position for a file."""
+        pos = self.redis.hget(Keys.AGENT_SYNC, file_path)
+        return int(pos) if pos else 0
+
+    def set_file_position(self, file_path: str, position: int):
+        """Store last read position for a file."""
+        self.redis.hset(Keys.AGENT_SYNC, file_path, position)
+
+    def infer_tags(self, file_path: str, tool_name: str) -> List[str]:
+        """Infer intent tags from file path and tool name."""
+        tags = set()
+
+        # Add tool-based tags
+        if tool_name in TOOL_TAGS:
+            tags.update(TOOL_TAGS[tool_name])
+
+        # Apply pattern matching to file path
+        for pattern, pattern_tags in INTENT_PATTERNS:
+            if re.search(pattern, file_path, re.IGNORECASE):
+                tags.update(pattern_tags)
+
+        # Infer from file extension
+        ext = Path(file_path).suffix.lower()
+        ext_tags = {
+            '.py': ['python'],
+            '.js': ['javascript'],
+            '.ts': ['typescript'],
+            '.tsx': ['typescript', 'frontend'],
+            '.jsx': ['javascript', 'frontend'],
+            '.rs': ['rust'],
+            '.go': ['golang'],
+            '.md': ['markdown', 'documentation'],
+            '.sh': ['shell'],
+            '.yml': ['configuration'],
+            '.yaml': ['configuration'],
+            '.json': ['configuration'],
+        }
+        if ext in ext_tags:
+            tags.update(ext_tags[ext])
+
+        return list(tags)
+
+    def parse_agent_file(self, file_path: Path) -> Tuple[List[Dict], Dict]:
+        """Parse new lines from an agent log file, extract tool_use events and costs."""
+        events = []
+        costs = {
+            'input_tokens': 0,
+            'output_tokens': 0,
+            'cache_read_tokens': 0,
+            'tool_calls': 0,
+            'search_tools': 0,  # Grep, Glob - "old way"
+            'read_tools': 0,    # Read calls
+            'first_timestamp': None,
+            'last_timestamp': None,
+        }
+        str_path = str(file_path)
+
+        try:
+            last_pos = self.get_file_position(str_path)
+            file_size = file_path.stat().st_size
+
+            # Skip if no new data
+            if file_size <= last_pos:
+                return events, costs
+
+            with open(file_path, 'r') as f:
+                f.seek(last_pos)
+                for line in f:
+                    try:
+                        data = json.loads(line.strip())
+                        msg = data.get('message', {})
+                        content = msg.get('content', [])
+                        session_id = data.get('sessionId', '')
+                        agent_id = data.get('agentId', '')
+                        timestamp = data.get('timestamp', '')
+
+                        # Track timestamps for duration calculation
+                        if timestamp:
+                            if costs['first_timestamp'] is None:
+                                costs['first_timestamp'] = timestamp
+                            costs['last_timestamp'] = timestamp
+
+                        # Extract token usage from assistant messages
+                        usage = msg.get('usage', {})
+                        if usage:
+                            costs['input_tokens'] += usage.get('input_tokens', 0)
+                            costs['output_tokens'] += usage.get('output_tokens', 0)
+                            costs['cache_read_tokens'] += usage.get('cache_read_input_tokens', 0)
+
+                        if isinstance(content, list):
+                            for item in content:
+                                if item.get('type') == 'tool_use':
+                                    tool_name = item.get('name', '')
+                                    tool_input = item.get('input', {})
+                                    tool_use_id = item.get('id', '')
+
+                                    # Track tool types for baseline calculation
+                                    costs['tool_calls'] += 1
+                                    if tool_name in ('Grep', 'Glob'):
+                                        costs['search_tools'] += 1
+                                    elif tool_name == 'Read':
+                                        costs['read_tools'] += 1
+
+                                    # Extract file path from tool input
+                                    file_accessed = tool_input.get('file_path',
+                                                    tool_input.get('path', ''))
+
+                                    if file_accessed or tool_name in ('Bash', 'Grep', 'Glob'):
+                                        events.append({
+                                            'tool': tool_name,
+                                            'file': file_accessed,
+                                            'tool_input': tool_input,
+                                            'session_id': session_id,
+                                            'agent_id': agent_id,
+                                            'tool_use_id': tool_use_id,
+                                            'timestamp': timestamp,
+                                        })
+                    except json.JSONDecodeError:
+                        continue
+
+                # Update position
+                self.set_file_position(str_path, f.tell())
+
+        except Exception as e:
+            print(f"Error parsing {file_path}: {e}")
+
+        return events, costs
+
+    def sync_project(self, project_slug: str) -> Dict:
+        """Sync all agent files for a project, tracking baseline costs."""
+        project_dir = self.claude_dir / project_slug
+        if not project_dir.exists():
+            return {'synced': 0, 'events': 0, 'baseline': {}}
+
+        synced_files = 0
+        total_events = 0
+
+        # Aggregate baseline costs across all agents
+        baseline = {
+            'total_tokens': 0,
+            'input_tokens': 0,
+            'output_tokens': 0,
+            'tool_calls': 0,
+            'search_tools': 0,  # Grep/Glob - these could be replaced by aOa
+            'read_tools': 0,
+            'potential_savings': {
+                'tools': 0,       # Search tools that aOa could replace
+                'tokens_est': 0,  # Estimated token savings
+            }
+        }
+
+        for agent_file in project_dir.glob('agent-*.jsonl'):
+            events, costs = self.parse_agent_file(agent_file)
+            synced_files += 1
+
+            # Aggregate baseline metrics
+            baseline['input_tokens'] += costs['input_tokens']
+            baseline['output_tokens'] += costs['output_tokens']
+            baseline['total_tokens'] += costs['input_tokens'] + costs['output_tokens']
+            baseline['tool_calls'] += costs['tool_calls']
+            baseline['search_tools'] += costs['search_tools']
+            baseline['read_tools'] += costs['read_tools']
+
+            # Estimate potential savings:
+            # - Each Grep/Glob could be replaced by 1 aOa search
+            # - Estimated 500 tokens saved per search tool replaced
+            # - Each Read after search could be more targeted
+            baseline['potential_savings']['tools'] += costs['search_tools']
+            baseline['potential_savings']['tokens_est'] += costs['search_tools'] * 500
+
+            for event in events:
+                # Infer tags
+                tags = self.infer_tags(event['file'], event['tool'])
+
+                # Add grep/glob patterns as additional context
+                if event['tool'] in ('Grep', 'Glob'):
+                    pattern = event['tool_input'].get('pattern', '')
+                    if pattern:
+                        pattern_tags = self.infer_tags(pattern, event['tool'])
+                        tags.extend(pattern_tags)
+
+                # Dedupe tags
+                tags = list(set(tags))
+
+                # POST to intent endpoint
+                try:
+                    payload = {
+                        'tool': event['tool'],
+                        'files': [event['file']] if event['file'] else [],
+                        'tags': tags,
+                        'session_id': event['session_id'],
+                        'tool_use_id': event['tool_use_id'],
+                        'source': f"agent:{event['agent_id']}",
+                    }
+                    requests.post(f"{self.intent_url}/intent", json=payload, timeout=1)
+                    total_events += 1
+                except Exception:
+                    pass  # Don't block on intent failures
+
+        return {
+            'synced': synced_files,
+            'events': total_events,
+            'baseline': baseline
+        }
+
+    def sync_all(self) -> Dict:
+        """Sync all projects that have agent files, aggregate baseline costs."""
+        now = time.time()
+
+        # Rate limit
+        if now - self.last_sync < self.sync_interval:
+            return {'skipped': True, 'reason': 'rate_limited'}
+
+        with self.lock:
+            self.last_sync = now
+            results = {}
+            total_baseline = {
+                'total_tokens': 0,
+                'tool_calls': 0,
+                'search_tools': 0,
+                'read_tools': 0,
+                'potential_savings_tokens': 0,
+            }
+
+            if not self.claude_dir.exists():
+                return {'error': f'Claude dir not found: {self.claude_dir}'}
+
+            for project_dir in self.claude_dir.iterdir():
+                if project_dir.is_dir():
+                    project_slug = project_dir.name
+                    proj_result = self.sync_project(project_slug)
+                    results[project_slug] = proj_result
+
+                    # Aggregate baseline across all projects
+                    if 'baseline' in proj_result:
+                        b = proj_result['baseline']
+                        total_baseline['total_tokens'] += b.get('total_tokens', 0)
+                        total_baseline['tool_calls'] += b.get('tool_calls', 0)
+                        total_baseline['search_tools'] += b.get('search_tools', 0)
+                        total_baseline['read_tools'] += b.get('read_tools', 0)
+                        total_baseline['potential_savings_tokens'] += b.get('potential_savings', {}).get('tokens_est', 0)
+
+            # Store aggregated baseline in Redis for metrics endpoint
+            self.redis.hmset('aoa:baseline', {
+                'total_tokens': total_baseline['total_tokens'],
+                'tool_calls': total_baseline['tool_calls'],
+                'search_tools': total_baseline['search_tools'],
+                'potential_savings_tokens': total_baseline['potential_savings_tokens'],
+                'last_sync': int(now),
+            })
+
+            return {
+                'projects': results,
+                'baseline': total_baseline,
+                'synced_at': int(now),
+            }
 
 # =============================================================================
 # Data Models
@@ -457,18 +784,91 @@ def weekly_reset():
 
 
 # =============================================================================
+# Subagent Sync Endpoints
+# =============================================================================
+
+@app.route('/sync/subagents', methods=['POST'])
+def sync_subagents():
+    """
+    Trigger subagent activity sync.
+
+    Scans all agent-*.jsonl files, extracts tool_use events,
+    infers tags, sends to intent tracking, and calculates baseline costs.
+    """
+    if syncer is None:
+        return jsonify({'error': 'Syncer not initialized'}), 503
+
+    results = syncer.sync_all()
+    return jsonify(results)
+
+
+@app.route('/baseline')
+def get_baseline():
+    """
+    Get baseline cost metrics from subagent activity.
+
+    Returns aggregated token usage, tool calls, and potential savings
+    if aOa had been used instead of Grep/Glob.
+    """
+    baseline = manager.redis.hgetall('aoa:baseline')
+
+    if not baseline:
+        return jsonify({
+            'baseline': {},
+            'message': 'No baseline data yet. Trigger /sync/subagents first.'
+        })
+
+    # Convert bytes to appropriate types
+    return jsonify({
+        'baseline': {
+            'total_tokens': int(baseline.get(b'total_tokens', 0)),
+            'tool_calls': int(baseline.get(b'tool_calls', 0)),
+            'search_tools': int(baseline.get(b'search_tools', 0)),
+            'potential_savings_tokens': int(baseline.get(b'potential_savings_tokens', 0)),
+            'last_sync': int(baseline.get(b'last_sync', 0)),
+        }
+    })
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
 def main():
-    global manager
-    
+    global manager, syncer
+
     print(f"Starting aOa Status Service")
     print(f"Redis: {REDIS_URL}")
     print(f"Port: {PORT}")
-    
+
     manager = StatusManager(REDIS_URL)
-    
+
+    # Initialize subagent syncer
+    try:
+        syncer = SubagentSyncer(
+            redis_client=manager.redis,
+            intent_url="http://localhost:9999"
+        )
+        print(f"Subagent syncer initialized")
+        print(f"  Claude dir: {syncer.claude_dir}")
+        print(f"  Sync interval: {syncer.sync_interval}s")
+
+        # Start background sync thread
+        def background_sync():
+            while True:
+                try:
+                    time.sleep(syncer.sync_interval)
+                    syncer.sync_all()
+                except Exception as e:
+                    print(f"Background sync error: {e}")
+
+        sync_thread = threading.Thread(target=background_sync, daemon=True)
+        sync_thread.start()
+        print(f"Background sync thread started")
+    except Exception as e:
+        print(f"Syncer initialization failed: {e}")
+        syncer = None
+
     app.run(host='0.0.0.0', port=PORT, threaded=True)
 
 if __name__ == '__main__':

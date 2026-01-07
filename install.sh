@@ -168,6 +168,9 @@ if [[ "$1" == "--uninstall" ]]; then
                 # Remove aOa skills
                 rm -f "$proj_path/.claude/skills/aoa.md" 2>/dev/null
 
+                # Remove aOa agents
+                rm -f "$proj_path/.claude/agents/aoa-"* 2>/dev/null
+
                 # Check settings.local.json - only remove if unchanged from template
                 if [ -f "$proj_path/.claude/settings.local.json" ] && [ -f "$AOA_HOME/settings.template.json" ]; then
                     TEMPLATE_HASH=$(md5sum "$AOA_HOME/settings.template.json" 2>/dev/null | cut -d' ' -f1)
@@ -186,6 +189,7 @@ if [[ "$1" == "--uninstall" ]]; then
                 # Clean up empty .claude subdirs
                 rmdir "$proj_path/.claude/hooks" 2>/dev/null || true
                 rmdir "$proj_path/.claude/skills" 2>/dev/null || true
+                rmdir "$proj_path/.claude/agents" 2>/dev/null || true
                 rmdir "$proj_path/.claude" 2>/dev/null || true
             fi
         done
@@ -348,6 +352,12 @@ echo -e "${GREEN}✓${NC}"
 echo -n "  Copying skill templates....... "
 mkdir -p "$AOA_HOME/skills"
 cp "$SCRIPT_DIR/plugin/skills/"*.md "$AOA_HOME/skills/" 2>/dev/null || true
+echo -e "${GREEN}✓${NC}"
+
+# Copy agent templates
+echo -n "  Copying agent templates....... "
+mkdir -p "$AOA_HOME/agents"
+cp "$SCRIPT_DIR/plugin/agents/"*.md "$AOA_HOME/agents/" 2>/dev/null || true
 echo -e "${GREEN}✓${NC}"
 
 # Create empty projects.json

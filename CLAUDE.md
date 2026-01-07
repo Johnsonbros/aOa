@@ -45,6 +45,23 @@ When the user addresses an agent by name using "Hey [AgentName]", spawn that age
 | "Hey 131" | 131 | Research-only problem solving with parallel solution discovery |
 | "Hey GH" | gh | Growth Hacker - solutions architect, problem decomposer |
 
+### aOa-Aware Agents (IMPORTANT)
+
+**When spawning subagents for codebase exploration, use aOa agents instead of built-in Explore:**
+
+| Use This | Instead Of | Why |
+|----------|------------|-----|
+| `aoa-scout` | Explore (quick) | Uses `aoa search`, 10-50x faster |
+| `aoa-explore` | Explore (thorough) | Uses `aoa search`, saves tokens |
+
+**Built-in Explore agents don't use aOa** - they fall back to slow Grep/Glob.
+
+Example - spawning parallel searches:
+```
+Task(subagent_type="aoa-scout", prompt="Find authentication handlers")
+Task(subagent_type="aoa-scout", prompt="Find database models")
+```
+
 ### Agent Context Loading
 
 **All agents MUST read context files before exploring the codebase.**

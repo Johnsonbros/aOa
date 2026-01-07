@@ -111,6 +111,12 @@ cmd_init() {
     cp "$AOA_HOME/skills/"*.md "$project_root/.claude/skills/" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
+    # Copy agents
+    echo -n "  Installing agents............. "
+    mkdir -p "$project_root/.claude/agents"
+    cp "$AOA_HOME/agents/"*.md "$project_root/.claude/agents/" 2>/dev/null || true
+    echo -e "${GREEN}✓${NC}"
+
     # Copy or merge settings template
     echo -n "  Creating settings............. "
     if [ ! -f "$project_root/.claude/settings.local.json" ]; then
@@ -203,6 +209,11 @@ cmd_remove() {
     rm -f "$project_root/.claude/skills/aoa.md" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
+    # Remove agents
+    echo -n "  Removing agents............... "
+    rm -f "$project_root/.claude/agents/aoa-"* 2>/dev/null || true
+    echo -e "${GREEN}✓${NC}"
+
     # Remove from projects.json
     echo -n "  Unregistering project......... "
     local projects_file="$AOA_HOME/projects.json"
@@ -238,6 +249,7 @@ cmd_remove() {
     echo -n "  Cleaning directories.......... "
     rmdir "$project_root/.claude/hooks" 2>/dev/null || true
     rmdir "$project_root/.claude/skills" 2>/dev/null || true
+    rmdir "$project_root/.claude/agents" 2>/dev/null || true
     rmdir "$project_root/.claude" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
@@ -1064,6 +1076,65 @@ cmd_health() {
     fi
 }
 
+cmd_baseline() {
+    echo -e "${BOLD}aOa Baseline Costs${NC}"
+    echo -e "${DIM}Subagent activity tracked from session logs${NC}"
+    echo
+
+    local result=$(curl -s "${STATUS_URL}/baseline" 2>/dev/null)
+
+    if [ -z "$result" ]; then
+        echo -e "${RED}Could not connect to status service${NC}"
+        return 1
+    fi
+
+    local total_tokens=$(echo "$result" | jq -r '.baseline.total_tokens // 0')
+    local tool_calls=$(echo "$result" | jq -r '.baseline.tool_calls // 0')
+    local search_tools=$(echo "$result" | jq -r '.baseline.search_tools // 0')
+    local potential_savings=$(echo "$result" | jq -r '.baseline.potential_savings_tokens // 0')
+    local last_sync=$(echo "$result" | jq -r '.baseline.last_sync // 0')
+
+    if [ "$total_tokens" -eq 0 ]; then
+        echo -e "${DIM}No baseline data yet.${NC}"
+        echo -e "${DIM}Subagent sync runs automatically in the background.${NC}"
+        return 0
+    fi
+
+    # Format tokens
+    format_k() {
+        local n=$1
+        if [ "$n" -ge 1000 ]; then
+            echo "$((n / 1000))k"
+        else
+            echo "$n"
+        fi
+    }
+
+    local tokens_fmt=$(format_k $total_tokens)
+    local savings_fmt=$(format_k $potential_savings)
+
+    echo -e "  ${BOLD}Subagent Activity Observed:${NC}"
+    echo -e "    Tool calls: ${CYAN}${tool_calls}${NC}"
+    echo -e "    Tokens: ${CYAN}${tokens_fmt}${NC}"
+    echo -e "    Grep/Glob used: ${YELLOW}${search_tools}${NC} times"
+    echo
+
+    if [ "$potential_savings" -gt 0 ]; then
+        local pct=$((potential_savings * 100 / total_tokens))
+        echo -e "  ${BOLD}Potential Savings with aOa:${NC}"
+        echo -e "    Tokens: ${GREEN}↓${savings_fmt}${NC} ${DIM}(~${pct}% of subagent tokens)${NC}"
+        echo -e "    Tool calls: ${GREEN}↓${search_tools}${NC} ${DIM}Grep/Glob → aoa search${NC}"
+        echo
+    fi
+
+    if [ "$last_sync" -gt 0 ]; then
+        local now=$(date +%s)
+        local age=$((now - last_sync))
+        echo -e "  ${DIM}Last sync: ${age}s ago${NC}"
+    fi
+    echo
+}
+
 cmd_metrics() {
     local metrics=$(curl -s --connect-timeout 2 "${INDEX_URL}/metrics" 2>/dev/null)
 
@@ -1239,6 +1310,7 @@ INTEL ANGLE (external reference)
 SYSTEM
   health                 Check all angles
   metrics                Prediction accuracy and savings
+  baseline               Subagent baseline costs and potential savings
   services               Visual service map with live status
 
 EXAMPLES
@@ -1303,6 +1375,7 @@ main() {
         # System
         health)     cmd_health ;;
         metrics)    cmd_metrics ;;
+        baseline|bl) cmd_baseline ;;
         memory|mem) cmd_memory "$@" ;;
         services|svc|map) cmd_services ;;
         help|--help|-h) cmd_help ;;
