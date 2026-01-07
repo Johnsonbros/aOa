@@ -121,6 +121,16 @@ cmd_init() {
     cp "$AOA_HOME/plugin/agents/"*.md "$project_root/.claude/agents/" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
+    # Create .aoa-config to point hooks to data directory
+    echo -n "  Creating config............... "
+    cat > "$project_root/.aoa-config" << EOFCONFIG
+{
+  "aoa_home": "$AOA_HOME",
+  "data_dir": "$AOA_DATA"
+}
+EOFCONFIG
+    echo -e "${GREEN}✓${NC}"
+
     # Copy or merge settings template
     echo -n "  Merging settings.............. "
     if [ ! -f "$project_root/.claude/settings.local.json" ]; then
@@ -242,6 +252,11 @@ cmd_remove() {
     # Remove agents
     echo -n "  Removing agents............... "
     rm -f "$project_root/.claude/agents/aoa-"* 2>/dev/null || true
+    echo -e "${GREEN}✓${NC}"
+
+    # Remove .aoa-config
+    echo -n "  Removing config............... "
+    rm -f "$project_root/.aoa-config" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Remove from projects.json

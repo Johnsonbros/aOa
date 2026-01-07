@@ -11,10 +11,21 @@
 set -uo pipefail
 
 AOA_URL="${AOA_URL:-http://localhost:8080}"
-# Find AOA data directory (repo/data/)
-AOA_DATA="${AOA_DATA:-$(dirname "$(dirname "$(readlink -f "$0" || echo "$0")")")/../../data}"
-STATUS_FILE="${AOA_STATUS_FILE:-$AOA_DATA/status.json}"
 MIN_INTENTS=30
+
+# Find AOA data directory from .aoa-config
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(dirname "$(dirname "$HOOK_DIR")")"
+AOA_CONFIG="$PROJECT_ROOT/.aoa-config"
+
+if [ -f "$AOA_CONFIG" ]; then
+    AOA_DATA=$(jq -r '.data_dir' "$AOA_CONFIG" 2>/dev/null)
+else
+    # Fallback: use /tmp
+    AOA_DATA="${AOA_DATA:-/tmp/aoa}"
+fi
+
+STATUS_FILE="${AOA_STATUS_FILE:-$AOA_DATA/status.json}"
 
 # ANSI colors
 CYAN='\033[96m'

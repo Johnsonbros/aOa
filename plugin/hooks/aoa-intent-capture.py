@@ -15,7 +15,25 @@ from urllib.error import URLError
 from datetime import datetime
 
 AOA_URL = os.environ.get("AOA_URL", "http://localhost:8080")
-STATUS_FILE = os.environ.get("AOA_STATUS_FILE", os.path.expanduser("~/.aoa/status.json"))
+# Find AOA data directory
+# Option 1: Check for .aoa-config in project root (created by aoa init)
+# Option 2: Use env var
+# Option 3: Default to /tmp for isolated projects
+HOOK_DIR = Path(__file__).parent
+PROJECT_ROOT = HOOK_DIR.parent.parent  # .claude/hooks/ -> .claude/ -> project/
+AOA_CONFIG = PROJECT_ROOT / ".aoa-config"
+
+if AOA_CONFIG.exists():
+    # Read AOA_DATA location from config
+    import json
+    config = json.loads(AOA_CONFIG.read_text())
+    AOA_DATA = Path(config.get("data_dir", "/tmp/aoa"))
+else:
+    # Fallback: use /tmp (isolated per-project)
+    AOA_DATA = Path(os.environ.get("AOA_DATA", "/tmp/aoa"))
+
+AOA_DATA.mkdir(parents=True, exist_ok=True)
+STATUS_FILE = os.environ.get("AOA_STATUS_FILE", str(AOA_DATA / "status.json"))
 
 # Session ID fallback (overridden by Claude's session_id from stdin)
 DEFAULT_SESSION_ID = os.environ.get("AOA_SESSION_ID", datetime.now().strftime("%Y%m%d"))

@@ -184,6 +184,9 @@ if [[ "$1" == "--uninstall" ]]; then
                 # Remove aOa agents
                 rm -f "$proj_path/.claude/agents/aoa-"* 2>/dev/null
 
+                # Remove .aoa-config
+                rm -f "$proj_path/.aoa-config" 2>/dev/null
+
                 # Check settings.local.json - only remove if unchanged from template
                 if [ -f "$proj_path/.claude/settings.local.json" ] && [ -f "$AOA_DATA/settings.template.json" ]; then
                     TEMPLATE_HASH=$(md5sum "$AOA_DATA/settings.template.json" 2>/dev/null | cut -d' ' -f1)
