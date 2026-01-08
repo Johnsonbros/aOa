@@ -9,6 +9,8 @@
 #            -v ./repos:/repos:rw \
 #            -v ./.aoa:/config:rw \
 #            -v ~/.claude:/claude-sessions:ro \
+#            -v $HOME:/userhome:ro \
+#            -e USER_HOME=$HOME \
 #            aoa
 #
 # Services included:
@@ -17,6 +19,13 @@
 #   - Status (internal)
 #   - Proxy (internal)
 #   - Redis (internal)
+#
+# Volume mounts:
+#   /codebase       - aOa installation directory
+#   /repos          - Knowledge repos
+#   /config         - Configuration (.aoa folder)
+#   /claude-sessions - Claude history
+#   /userhome       - User's home (for multi-project access)
 # =============================================================================
 
 FROM python:3.11-slim
@@ -87,7 +96,7 @@ stderr_logfile=/var/log/supervisor/redis-error.log
 [program:index]
 command=python /app/index/indexer.py
 directory=/app/index
-environment=CODEBASE_ROOT="",REPOS_ROOT="/repos",CONFIG_DIR="/config",INDEXES_DIR="/indexes",CLAUDE_SESSIONS="/claude-sessions",REDIS_URL="redis://localhost:6379/0",PORT="9999"
+environment=CODEBASE_ROOT="",REPOS_ROOT="/repos",CONFIG_DIR="/config",INDEXES_DIR="/indexes",CLAUDE_SESSIONS="/claude-sessions",REDIS_URL="redis://localhost:6379/0",PORT="9999",USER_HOME="%(ENV_USER_HOME)s"
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/index.log

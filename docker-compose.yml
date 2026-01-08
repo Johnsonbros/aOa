@@ -3,16 +3,20 @@
 # Docker Compose Configuration
 # =============================================================================
 #
+# IMPORTANT: Mount paths are configured in .aoa/.env
+#   - PROJECTS_ROOT: Where your projects live (mounted to /userhome)
+#   - CLAUDE_SESSIONS: Claude history location
+#   - GATEWAY_PORT: Service port (default 8080)
+#
+# After editing .aoa/.env, restart with: docker-compose down && docker-compose up -d
+#
 # Network Architecture:
 #   - Internal network (NO internet) for all services except proxy
-#   - Single gateway port (8080) exposed to user
+#   - Single gateway port exposed to user
 #   - Proxy has controlled internet access (whitelisted URLs only)
 #
-# Transparency:
-#   curl localhost:8080/network   # See topology
-#   curl localhost:8080/verify    # Prove isolation
-#   curl localhost:8080/audit     # See all requests
-#
+# =============================================================================
+# Configuration is loaded from .env file in this directory.
 # =============================================================================
 
 services:
@@ -24,7 +28,7 @@ services:
       context: ./services/gateway
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "${GATEWAY_PORT:-8080}:8080"
     environment:
       - INDEX_URL=http://index:9999
       - STATUS_URL=http://status:9998
@@ -49,13 +53,15 @@ services:
       - ${CODEBASE_PATH:-.}:/codebase:ro
       - ./repos:/repos:ro
       - ./.aoa:/config:rw
-      - ~/.claude:/claude-sessions:ro
+      - ${CLAUDE_SESSIONS:-~/.claude}:/claude-sessions:ro
+      - ${PROJECTS_ROOT}:/userhome:ro     # User projects (from .aoa/.env)
     environment:
       - CODEBASE_ROOT=/codebase
       - REPOS_ROOT=/repos
       - CONFIG_DIR=/config
       - REDIS_URL=redis://redis:6379/0
       - CLAUDE_SESSIONS=/claude-sessions
+      - USER_HOME=${PROJECTS_ROOT}        # For path translation (from .aoa/.env)
     networks:
       - aoa-internal
     depends_on:

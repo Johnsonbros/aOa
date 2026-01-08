@@ -1271,6 +1271,79 @@ cmd_intent_stats() {
 # Utility Commands
 # =============================================================================
 
+cmd_info() {
+    echo -e "${CYAN}${BOLD}⚡ aOa Indexing Configuration${NC}"
+    echo ""
+
+    # Show aOa home
+    echo -e "${BOLD}aOa Installation:${NC}"
+    echo -e "  Home: ${AOA_HOME}"
+    echo -e "  Data: ${AOA_DATA}"
+    echo ""
+
+    # Read from .env file if it exists (root directory, where docker-compose reads it)
+    local env_file="${AOA_HOME}/.env"
+    local projects_root="${HOME}"
+    local claude_sessions="${HOME}/.claude"
+    local gateway_port="8080"
+
+    if [ -f "$env_file" ]; then
+        projects_root=$(grep "^PROJECTS_ROOT=" "$env_file" 2>/dev/null | cut -d'=' -f2 || echo "$HOME")
+        claude_sessions=$(grep "^CLAUDE_SESSIONS=" "$env_file" 2>/dev/null | cut -d'=' -f2 || echo "$HOME/.claude")
+        gateway_port=$(grep "^GATEWAY_PORT=" "$env_file" 2>/dev/null | cut -d'=' -f2 || echo "8080")
+    fi
+
+    # Show Docker configuration from .env
+    echo -e "${BOLD}Docker Configuration:${NC} ${DIM}(from .env)${NC}"
+    echo -e "  PROJECTS_ROOT:   ${projects_root} → /userhome"
+    echo -e "  CLAUDE_SESSIONS: ${claude_sessions}"
+    echo -e "  GATEWAY_PORT:    ${gateway_port}"
+    echo ""
+    echo -e "  ${DIM}Edit .env in aOa root to change paths, then restart Docker${NC}"
+    echo ""
+
+    # Show registered projects
+    echo -e "${BOLD}Registered Projects:${NC}"
+    local projects_file="${AOA_DATA}/projects.json"
+    if [ -f "$projects_file" ] && [ "$(jq 'length' "$projects_file" 2>/dev/null)" != "0" ]; then
+        jq -r '.[] | "  [\(.id | .[0:8])] \(.name) → \(.path)"' "$projects_file" 2>/dev/null
+    else
+        echo -e "  ${DIM}(none - run 'aoa init' in a project)${NC}"
+    fi
+    echo ""
+
+    # Show current project context
+    local project_root=$(get_project_root)
+    local project_id=$(get_project_id)
+    if [ -n "$project_root" ]; then
+        echo -e "${BOLD}Current Project:${NC}"
+        echo -e "  Root: ${project_root}"
+        echo -e "  ID:   ${project_id:-not initialized}"
+
+        # Check if initialized
+        if [ -z "$project_id" ]; then
+            echo -e "  ${YELLOW}→ Run 'aoa init' to enable aOa for this project${NC}"
+        fi
+    else
+        echo -e "${BOLD}Current Project:${NC}"
+        echo -e "  ${DIM}Not in a git repository${NC}"
+    fi
+    echo ""
+
+    # Show what gets indexed
+    echo -e "${BOLD}What Gets Indexed:${NC}"
+    echo -e "  ✓ Files in registered project roots"
+    echo -e "  ✓ Knowledge repos (repos/ directory)"
+    echo -e "  ✓ Claude session history (~/.claude)"
+    echo ""
+    echo -e "${BOLD}What Is Skipped:${NC}"
+    echo -e "  ✗ node_modules, .git, __pycache__, dist, build, etc."
+    echo -e "  ✗ Files outside registered projects"
+    echo -e "  ✗ Unrecognized file extensions"
+    echo ""
+    echo -e "${DIM}See: .aoa/config.json for full configuration${NC}"
+}
+
 cmd_services() {
     echo -e "${CYAN}${BOLD}"
     cat << 'EOF'
@@ -1706,6 +1779,7 @@ INTEL ANGLE (external reference)
 
 SYSTEM
   health                 Check all angles
+  info                   Show indexing config, mounts, registered projects
   metrics                Prediction accuracy and savings
   baseline               Subagent baseline costs and potential savings
   services               Visual service map with live status
@@ -1777,6 +1851,7 @@ main() {
         baseline|bl) cmd_baseline ;;
         memory|mem) cmd_memory "$@" ;;
         services|svc|map) cmd_services ;;
+        info)       cmd_info ;;
         help|--help|-h) cmd_help ;;
 
         *)
