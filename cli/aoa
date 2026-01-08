@@ -579,6 +579,146 @@ cmd_files() {
     curl -s "$url" | jq -r '.results[] | "\(.path) (\(.language))"'
 }
 
+cmd_outline() {
+    local file=""
+    local enrich=false
+    local enrich_all=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --enrich)
+                enrich=true
+                shift
+                ;;
+            --enrich-all)
+                enrich_all=true
+                shift
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                return 1
+                ;;
+            *)
+                file="$1"
+                shift
+                ;;
+        esac
+    done
+
+    # Handle --enrich-all (batch mode)
+    if $enrich_all; then
+        echo -e "${CYAN}${BOLD}⚡ aOa Outline - Batch Enrich${NC}"
+        echo ""
+
+        # Get current project context
+        local project_id=$(get_project_id)
+        local project_param=""
+        if [ -n "$project_id" ]; then
+            project_param="?project=${project_id}"
+        fi
+
+        # Get pending files from the service
+        local result=$(curl -s "${INDEX_URL}/outline/pending${project_param}")
+
+        local pending_count=$(echo "$result" | jq -r '.pending_count // 0')
+        local up_to_date=$(echo "$result" | jq -r '.up_to_date_count // 0')
+        local total=$(echo "$result" | jq -r '.total_files // 0')
+        local ms=$(echo "$result" | jq -r '.ms // 0')
+
+        printf "Scanned project in ${GREEN}%.1fms${NC}\n" "$ms"
+        echo ""
+        echo -e "  Total files:      ${BOLD}${total}${NC}"
+        echo -e "  Already enriched: ${GREEN}${up_to_date}${NC} ${DIM}(up to date)${NC}"
+        echo -e "  Need enrichment:  ${YELLOW}${pending_count}${NC}"
+        echo ""
+
+        if [ "$pending_count" -eq 0 ]; then
+            echo -e "${GREEN}All files are up to date!${NC}"
+            return 0
+        fi
+
+        echo -e "${BOLD}Files to enrich:${NC}"
+        echo "$result" | jq -r '.pending[:10][] | "  \(.file) (\(.reason))"' 2>/dev/null
+
+        if [ "$pending_count" -gt 10 ]; then
+            echo -e "  ${DIM}... and $((pending_count - 10)) more${NC}"
+        fi
+
+        echo ""
+        echo -e "${BLUE}─── Enrichment ───${NC}"
+        echo ""
+        echo -e "${DIM}Claude should spawn Haiku tasks for each pending file.${NC}"
+        echo -e "${DIM}After enriching, mark complete via: POST /outline/enriched${NC}"
+        echo ""
+        echo "ENRICH_BATCH_REQUEST:"
+        echo "$result" | jq -c '{pending: .pending, project: "'"${project_id}"'"}'
+        return 0
+    fi
+
+    if [ -z "$file" ]; then
+        echo "Usage: aoa outline <file> [--enrich]"
+        echo "       aoa outline --enrich-all"
+        echo ""
+        echo "Options:"
+        echo "  --enrich      Add AI-generated intent tags (requires Claude Code)"
+        echo "  --enrich-all  Batch enrich all project files (requires Claude Code)"
+        echo ""
+        echo "Examples:"
+        echo "  aoa outline src/index.ts"
+        echo "  aoa outline services/auth.py --enrich"
+        return 1
+    fi
+
+    # Get current project context
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/outline?file=${file}${project_param}")
+
+    # Check for errors
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        local msg=$(echo "$result" | jq -r '.message // empty')
+        [ -n "$msg" ] && echo -e "${DIM}${msg}${NC}"
+        return 1
+    fi
+
+    local count=$(echo "$result" | jq -r '.count // 0')
+    local ms=$(echo "$result" | jq -r '.ms // 0')
+    local lang=$(echo "$result" | jq -r '.language // "unknown"')
+
+    # Header
+    if $enrich; then
+        printf "${CYAN}${BOLD}⚡ %s symbols${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC} ${DIM}│${NC} ${YELLOW}%s${NC} ${DIM}│${NC} ${BLUE}enrichment requested${NC}\n" "$count" "$ms" "$lang"
+    else
+        printf "${CYAN}${BOLD}⚡ %s symbols${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC} ${DIM}│${NC} ${YELLOW}%s${NC}\n" "$count" "$ms" "$lang"
+    fi
+    echo ""
+
+    # Output symbols with line ranges
+    echo "$result" | jq -r '.symbols[] | "  \(.kind) \(.name) [\(.start_line)-\(.end_line)]"' 2>/dev/null
+
+    # If enrichment requested, output instructions for Claude
+    if $enrich; then
+        echo ""
+        echo -e "${BLUE}─── Enrichment ───${NC}"
+        echo ""
+        echo -e "${DIM}To enrich these symbols with AI-generated tags, Claude should:${NC}"
+        echo -e "${DIM}1. Extract signatures from the outline above${NC}"
+        echo -e "${DIM}2. Spawn a Haiku task to generate 2-4 intent tags per symbol${NC}"
+        echo -e "${DIM}3. Store tags via: POST /intent with tags array${NC}"
+        echo ""
+        # Output JSON for Claude to use
+        echo "ENRICH_REQUEST:"
+        echo "$result" | jq -c '{file: .file, language: .language, symbols: [.symbols[] | {name: .name, kind: .kind, signature: .signature}]}'
+    fi
+}
+
 # =============================================================================
 # Knowledge Repo Commands
 # =============================================================================
@@ -1434,6 +1574,11 @@ PROJECT SEARCH
   changes [time]         Recent file changes (e.g., 5m, 1h)
   files [pattern]        List indexed files
 
+OUTLINE ANGLE (code structure)
+  outline <file>         Code outline via tree-sitter (functions, classes)
+  outline <f> --enrich   Request AI enrichment (Claude spawns Haiku)
+  outline --enrich-all   Batch enrich project (delta: only changed files)
+
 ATTACK STATUS
   status                 Show attack status (hit rate, intents)
   status --watch         Live updating status
@@ -1511,6 +1656,7 @@ main() {
         multi|m)    cmd_multi "$@" ;;
         changes|c)  cmd_changes "$@" ;;
         files|f)    cmd_files "$@" ;;
+        outline|o)  cmd_outline "$@" ;;
 
         # Pattern Search
         pattern|p)  cmd_pattern "$@" ;;

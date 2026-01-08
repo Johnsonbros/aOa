@@ -27,6 +27,36 @@ from flask import Flask, request, jsonify
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+# Tree-sitter for code outlines
+try:
+    from tree_sitter import Parser, Language
+    # Import individual language modules
+    import tree_sitter_python
+    import tree_sitter_javascript
+    import tree_sitter_typescript
+    import tree_sitter_go
+    import tree_sitter_rust
+    import tree_sitter_java
+    import tree_sitter_c
+    import tree_sitter_cpp
+    import tree_sitter_ruby
+    TREE_SITTER_AVAILABLE = True
+    # Wrap language capsules with Language()
+    TREE_SITTER_LANGS = {
+        'python': Language(tree_sitter_python.language()),
+        'javascript': Language(tree_sitter_javascript.language()),
+        'typescript': Language(tree_sitter_typescript.language_typescript()),
+        'go': Language(tree_sitter_go.language()),
+        'rust': Language(tree_sitter_rust.language()),
+        'java': Language(tree_sitter_java.language()),
+        'c': Language(tree_sitter_c.language()),
+        'cpp': Language(tree_sitter_cpp.language()),
+        'ruby': Language(tree_sitter_ruby.language()),
+    }
+except ImportError:
+    TREE_SITTER_AVAILABLE = False
+    TREE_SITTER_LANGS = {}
+
 # Ranking module for predictive file scoring
 import sys
 sys.path.insert(0, '/app')  # For Docker
@@ -79,6 +109,194 @@ class IntentRecord:
     tags: List[str]
     tool_use_id: Optional[str] = None  # Claude's toolu_xxx correlation key
     project_id: Optional[str] = None  # UUID for per-project isolation
+
+
+@dataclass
+class OutlineSymbol:
+    """A symbol extracted from code outline."""
+    name: str
+    kind: str  # function, class, method
+    start_line: int
+    end_line: int
+    signature: Optional[str] = None
+    children: Optional[List['OutlineSymbol']] = None
+    tags: Optional[List[str]] = None  # AI-generated intent tags (via enrichment)
+
+
+class OutlineParser:
+    """Extract code structure using tree-sitter."""
+
+    # Map file extensions to tree-sitter language names
+    LANG_MAP = {
+        'python': 'python',
+        'typescript': 'typescript',
+        'javascript': 'javascript',
+        'go': 'go',
+        'rust': 'rust',
+        'java': 'java',
+        'c': 'c',
+        'cpp': 'cpp',
+        'ruby': 'ruby',
+        'php': 'php',
+        'swift': 'swift',
+        'kotlin': 'kotlin',
+        'scala': 'scala',
+        'csharp': 'c_sharp',
+    }
+
+    # Node types that represent symbols we want to extract (by language)
+    SYMBOL_NODES = {
+        'python': {
+            'function_definition': 'function',
+            'class_definition': 'class',
+        },
+        'typescript': {
+            'function_declaration': 'function',
+            'class_declaration': 'class',
+            'method_definition': 'method',
+            'arrow_function': 'function',
+            'interface_declaration': 'interface',
+        },
+        'javascript': {
+            'function_declaration': 'function',
+            'class_declaration': 'class',
+            'method_definition': 'method',
+            'arrow_function': 'function',
+        },
+        'go': {
+            'function_declaration': 'function',
+            'method_declaration': 'method',
+            'type_declaration': 'type',
+        },
+        'rust': {
+            'function_item': 'function',
+            'impl_item': 'impl',
+            'struct_item': 'struct',
+            'enum_item': 'enum',
+            'trait_item': 'trait',
+        },
+        'java': {
+            'method_declaration': 'method',
+            'class_declaration': 'class',
+            'interface_declaration': 'interface',
+        },
+        'c': {
+            'function_definition': 'function',
+            'struct_specifier': 'struct',
+        },
+        'cpp': {
+            'function_definition': 'function',
+            'class_specifier': 'class',
+            'struct_specifier': 'struct',
+        },
+        'ruby': {
+            'method': 'method',
+            'class': 'class',
+            'module': 'module',
+        },
+    }
+
+    def __init__(self):
+        self._parsers = {}
+
+    def get_parser(self, language: str):
+        """Get or create a parser for the given language."""
+        if not TREE_SITTER_AVAILABLE:
+            return None
+
+        ts_lang = self.LANG_MAP.get(language)
+        if not ts_lang:
+            return None
+
+        if ts_lang not in self._parsers:
+            lang_obj = TREE_SITTER_LANGS.get(ts_lang)
+            if not lang_obj:
+                return None
+            try:
+                parser = Parser(lang_obj)
+                self._parsers[ts_lang] = parser
+            except Exception:
+                return None
+
+        return self._parsers.get(ts_lang)
+
+    def _get_node_name(self, node, source_bytes: bytes, language: str) -> Optional[str]:
+        """Extract the name of a symbol node."""
+        # Different languages have different name child node types
+        name_types = {
+            'python': ['identifier', 'name'],
+            'typescript': ['identifier', 'property_identifier'],
+            'javascript': ['identifier', 'property_identifier'],
+            'go': ['identifier', 'field_identifier'],
+            'rust': ['identifier', 'type_identifier'],
+            'java': ['identifier'],
+            'c': ['identifier'],
+            'cpp': ['identifier'],
+            'ruby': ['identifier', 'constant'],
+        }
+
+        types_to_check = name_types.get(language, ['identifier'])
+
+        for child in node.children:
+            if child.type in types_to_check:
+                return source_bytes[child.start_byte:child.end_byte].decode('utf-8', errors='replace')
+
+        return None
+
+    def _get_signature(self, node, source_bytes: bytes, max_len: int = 100) -> str:
+        """Extract signature (first line of the node)."""
+        start = node.start_byte
+        # Find end of first line
+        end = start
+        while end < len(source_bytes) and end < start + max_len:
+            if source_bytes[end:end+1] == b'\n':
+                break
+            end += 1
+        return source_bytes[start:end].decode('utf-8', errors='replace').strip()
+
+    def parse_file(self, file_path: str, language: str) -> List[OutlineSymbol]:
+        """Parse a file and return its outline."""
+        parser = self.get_parser(language)
+        if not parser:
+            return []
+
+        try:
+            with open(file_path, 'rb') as f:
+                source = f.read()
+        except (IOError, OSError):
+            return []
+
+        try:
+            tree = parser.parse(source)
+        except Exception:
+            return []
+
+        symbols = []
+        symbol_types = self.SYMBOL_NODES.get(language, {})
+
+        def walk(node, depth=0):
+            if node.type in symbol_types:
+                name = self._get_node_name(node, source, language)
+                if name:
+                    symbol = OutlineSymbol(
+                        name=name,
+                        kind=symbol_types[node.type],
+                        start_line=node.start_point[0] + 1,  # 1-indexed
+                        end_line=node.end_point[0] + 1,
+                        signature=self._get_signature(node, source),
+                        children=[]
+                    )
+                    symbols.append(symbol)
+
+            for child in node.children:
+                walk(child, depth + 1)
+
+        walk(tree.root_node)
+        return symbols
+
+
+# Global outline parser instance
+outline_parser = OutlineParser()
 
 
 class CodebaseIndex:
@@ -871,6 +1089,133 @@ def multi_search():
         'results': results,
         'index': idx.name,
         'project': project,
+        'ms': (time.time() - start) * 1000
+    })
+
+
+@app.route('/outline')
+def get_outline():
+    """Get code outline (functions, classes) for a file using tree-sitter."""
+    start = time.time()
+
+    file_path = request.args.get('file')
+    project = request.args.get('project')
+
+    if not file_path:
+        return jsonify({'error': 'Missing file parameter', 'symbols': [], 'ms': 0}), 400
+
+    if not TREE_SITTER_AVAILABLE:
+        return jsonify({
+            'error': 'tree-sitter not available',
+            'message': 'Install tree-sitter and tree-sitter-languages',
+            'symbols': [],
+            'ms': 0
+        }), 503
+
+    idx = manager.get_local(project)
+    if not idx:
+        return jsonify({'error': 'No index available', 'symbols': [], 'ms': 0}), 404
+
+    # Resolve file path
+    full_path = Path(idx.root) / file_path if not Path(file_path).is_absolute() else Path(file_path)
+
+    if not full_path.exists():
+        return jsonify({'error': f'File not found: {file_path}', 'symbols': [], 'ms': 0}), 404
+
+    # Get language from file extension
+    language = idx.get_language(full_path)
+    if language == 'unknown':
+        return jsonify({
+            'error': f'Unsupported language for: {file_path}',
+            'symbols': [],
+            'ms': (time.time() - start) * 1000
+        }), 400
+
+    # Parse and get outline
+    symbols = outline_parser.parse_file(str(full_path), language)
+
+    return jsonify({
+        'file': str(file_path),
+        'language': language,
+        'symbols': [asdict(s) for s in symbols],
+        'count': len(symbols),
+        'ms': (time.time() - start) * 1000
+    })
+
+
+@app.route('/outline/enriched', methods=['POST'])
+def mark_enriched():
+    """Mark a file as enriched with AI-generated tags."""
+    data = request.json
+    file_path = data.get('file')
+    project = data.get('project')
+    tags_count = data.get('tags_count', 0)
+
+    if not file_path:
+        return jsonify({'success': False, 'error': 'Missing file parameter'}), 400
+
+    # Store enrichment timestamp in Redis
+    try:
+        import redis
+        r = redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
+        key = f"enriched:{project or 'default'}:{file_path}"
+        r.hset(key, mapping={
+            'enriched_at': int(time.time()),
+            'tags_count': tags_count
+        })
+        return jsonify({'success': True, 'file': file_path, 'enriched_at': int(time.time())})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/outline/pending')
+def get_pending_enrichment():
+    """Get files that need enrichment (modified since last enriched or never enriched)."""
+    start = time.time()
+    project = request.args.get('project')
+
+    idx = manager.get_local(project)
+    if not idx:
+        return jsonify({'error': 'No index available', 'pending': [], 'ms': 0}), 404
+
+    try:
+        import redis
+        r = redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
+    except Exception:
+        r = None
+
+    pending = []
+    up_to_date = []
+
+    for rel_path, meta in idx.files.items():
+        # Check if file has been enriched
+        enriched_at = 0
+        if r:
+            key = f"enriched:{project or 'default'}:{rel_path}"
+            data = r.hgetall(key)
+            if data and b'enriched_at' in data:
+                enriched_at = int(data[b'enriched_at'])
+
+        # Compare mtime to enriched_at
+        if meta.mtime > enriched_at:
+            pending.append({
+                'file': rel_path,
+                'language': meta.language,
+                'mtime': meta.mtime,
+                'enriched_at': enriched_at if enriched_at > 0 else None,
+                'reason': 'never' if enriched_at == 0 else 'modified'
+            })
+        else:
+            up_to_date.append(rel_path)
+
+    # Sort pending by mtime (most recently modified first)
+    pending.sort(key=lambda x: x['mtime'], reverse=True)
+
+    return jsonify({
+        'pending': pending,
+        'pending_count': len(pending),
+        'up_to_date_count': len(up_to_date),
+        'total_files': len(idx.files),
         'ms': (time.time() - start) * 1000
     })
 
