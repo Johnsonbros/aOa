@@ -27,15 +27,9 @@ AOA_HOME_FILE = PROJECT_ROOT / ".aoa" / "home.json"
 if AOA_HOME_FILE.exists():
     # Read config from home.json
     _config = json.loads(AOA_HOME_FILE.read_text())
-    AOA_DATA = Path(_config.get("data_dir", "/tmp/aoa"))
     PROJECT_ID = _config.get("project_id", "")  # UUID from aoa init
 else:
-    # Fallback: use /tmp (isolated per-project)
-    AOA_DATA = Path(os.environ.get("AOA_DATA", "/tmp/aoa"))
     PROJECT_ID = ""
-
-AOA_DATA.mkdir(parents=True, exist_ok=True)
-STATUS_FILE = os.environ.get("AOA_STATUS_FILE", str(AOA_DATA / "status.json"))
 
 # Session ID fallback (overridden by Claude's session_id from stdin)
 DEFAULT_SESSION_ID = os.environ.get("AOA_SESSION_ID", datetime.now().strftime("%Y%m%d"))
@@ -143,42 +137,6 @@ def infer_tags(files: list, tool: str) -> list:
     return list(tags)
 
 
-def update_status_file(tool: str, files: list, tags: list):
-    """Update local status file for status line display."""
-    try:
-        os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
-
-        # Read existing or create new
-        status = {"intents": 0, "tags": [], "recent": [], "last_tool": None}
-        if os.path.exists(STATUS_FILE):
-            with open(STATUS_FILE, 'r') as f:
-                status = json.load(f)
-
-        # Update
-        status["intents"] = status.get("intents", 0) + 1
-        status["last_tool"] = tool
-        status["last_files"] = files[:3]
-
-        # Merge tags (keep unique, limit to 20)
-        all_tags = set(status.get("tags", []))
-        all_tags.update(tags)
-        status["tags"] = list(all_tags)[:20]
-
-        # Recent activity (last 5 tags used)
-        recent = status.get("recent", [])
-        for tag in tags:
-            if tag not in recent:
-                recent.insert(0, tag)
-        status["recent"] = recent[:5]
-
-        status["updated"] = datetime.now().isoformat()
-
-        with open(STATUS_FILE, 'w') as f:
-            json.dump(status, f)
-    except Exception:
-        pass  # Never block
-
-
 def check_prediction_hit(session_id: str, file_path: str):
     """Check if this file access was predicted (QW-3: Phase 2)."""
     if not file_path or file_path.startswith('pattern:'):
@@ -204,9 +162,6 @@ def check_prediction_hit(session_id: str, file_path: str):
 
 def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id: str = None):
     """Send intent to aOa (fire-and-forget)."""
-    # Always update local status file (for status line) - even without files
-    update_status_file(tool, files, tags)
-
     if not files:
         return
 

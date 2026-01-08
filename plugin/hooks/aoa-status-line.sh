@@ -19,15 +19,10 @@ PROJECT_ROOT="$(dirname "$(dirname "$HOOK_DIR")")"
 AOA_HOME_FILE="$PROJECT_ROOT/.aoa/home.json"
 
 if [ -f "$AOA_HOME_FILE" ]; then
-    AOA_DATA=$(jq -r '.data_dir' "$AOA_HOME_FILE" 2>/dev/null)
     PROJECT_ID=$(jq -r '.project_id // ""' "$AOA_HOME_FILE" 2>/dev/null)
 else
-    # Fallback: use /tmp
-    AOA_DATA="${AOA_DATA:-/tmp/aoa}"
     PROJECT_ID=""
 fi
-
-STATUS_FILE="${AOA_STATUS_FILE:-$AOA_DATA/status.json}"
 
 # ANSI colors
 CYAN='\033[96m'
@@ -163,13 +158,6 @@ elif [ "$PERCENT" -lt 75 ]; then CTX_COLOR=$YELLOW
 else CTX_COLOR=$RED
 fi
 
-# === GET INTENT COUNT ===
-INTENTS=0
-if [ -f "$STATUS_FILE" ]; then
-    INTENTS=$(jq -r '.intents // 0' "$STATUS_FILE" 2>/dev/null)
-fi
-INTENTS=${INTENTS:-0}
-
 # === GET AOA METRICS (with timing) ===
 START_TIME=$(date +%s%N)
 # Include project_id for per-project metrics
@@ -202,6 +190,15 @@ TIME_SAVED_SEC=$(echo "$METRICS" | jq -r '.savings.time_sec // 0')
 TIME_SAVED_SEC_INT=$(printf "%.0f" "$TIME_SAVED_SEC")
 ROLLING_HITS=$(echo "$METRICS" | jq -r '.rolling.hits // 0')
 EVALUATED=$(echo "$METRICS" | jq -r '.rolling.evaluated // 0')
+
+# Get intent count from API (per-project)
+INTENT_URL="${AOA_URL}/intent/stats"
+if [ -n "$PROJECT_ID" ]; then
+    INTENT_URL="${INTENT_URL}?project_id=${PROJECT_ID}"
+fi
+INTENT_STATS=$(curl -s --max-time 0.2 "${INTENT_URL}" 2>/dev/null)
+INTENTS=$(echo "$INTENT_STATS" | jq -r '.total_records // 0' 2>/dev/null)
+INTENTS=${INTENTS:-0}
 
 # === BUILD DISPLAY ===
 SEP="${DIM}│${RESET}"
