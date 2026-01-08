@@ -315,7 +315,7 @@ cmd_remove() {
 
     # Remove skills
     echo -n "  Removing skills............... "
-    rm -f "$project_root/.claude/skills/aoa.md" 2>/dev/null || true
+    rm -f "$project_root/.claude/skills/aoa"* 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Remove agents
@@ -583,6 +583,7 @@ cmd_outline() {
     local file=""
     local enrich=false
     local enrich_all=false
+    local pending=false
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -595,6 +596,10 @@ cmd_outline() {
                 enrich_all=true
                 shift
                 ;;
+            --pending)
+                pending=true
+                shift
+                ;;
             -*)
                 echo "Unknown option: $1"
                 return 1
@@ -605,6 +610,32 @@ cmd_outline() {
                 ;;
         esac
     done
+
+    # Handle --pending (quick status check)
+    if $pending; then
+        local project_id=$(get_project_id)
+        local project_param=""
+        if [ -n "$project_id" ]; then
+            project_param="?project=${project_id}"
+        fi
+
+        local result=$(curl -s "${INDEX_URL}/outline/pending${project_param}")
+        local pending_count=$(echo "$result" | jq -r '.pending_count // 0')
+        local up_to_date=$(echo "$result" | jq -r '.up_to_date_count // 0')
+        local total=$(echo "$result" | jq -r '.total_files // 0')
+
+        echo -e "${CYAN}${BOLD}⚡ aOa Enrichment Status${NC}"
+        echo ""
+        echo -e "  Pending:    ${YELLOW}${pending_count}${NC}"
+        echo -e "  Up to date: ${GREEN}${up_to_date}${NC}"
+        echo -e "  Total:      ${total}"
+
+        if [ "$pending_count" -gt 0 ]; then
+            echo ""
+            echo -e "${DIM}Run 'aoa enrich' in Claude Code to process pending files.${NC}"
+        fi
+        return 0
+    fi
 
     # Handle --enrich-all (batch mode)
     if $enrich_all; then
@@ -717,6 +748,44 @@ cmd_outline() {
         echo "ENRICH_REQUEST:"
         echo "$result" | jq -c '{file: .file, language: .language, symbols: [.symbols[] | {name: .name, kind: .kind, signature: .signature}]}'
     fi
+}
+
+cmd_enrich() {
+    # Get pending enrichment status
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="?project=${project_id}"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/outline/pending${project_param}")
+    local pending_count=$(echo "$result" | jq -r '.pending_count // 0')
+    local up_to_date=$(echo "$result" | jq -r '.up_to_date_count // 0')
+    local total=$(echo "$result" | jq -r '.total_files // 0')
+
+    echo -e "${CYAN}${BOLD}⚡ aOa Enrich${NC}"
+    echo ""
+    echo -e "  Pending:    ${YELLOW}${pending_count}${NC} files need enrichment"
+    echo -e "  Up to date: ${GREEN}${up_to_date}${NC} files"
+    echo -e "  Total:      ${total} files"
+    echo ""
+
+    if [ "$pending_count" -eq 0 ]; then
+        echo -e "${GREEN}All files are up to date!${NC}"
+        return 0
+    fi
+
+    echo -e "${BOLD}How to enrich:${NC}"
+    echo ""
+    echo "  In Claude Code, say: \"aoa enrich\""
+    echo ""
+    echo "  Claude will:"
+    echo "    1. Query /outline/pending for files needing enrichment"
+    echo "    2. Batch files into groups of 15"
+    echo "    3. Spawn Haiku tasks to generate semantic tags"
+    echo "    4. Mark files enriched via /outline/enriched"
+    echo ""
+    echo -e "${DIM}See: plugin/skills/aoa-enrich.md for full instructions${NC}"
 }
 
 # =============================================================================
@@ -1577,7 +1646,9 @@ PROJECT SEARCH
 OUTLINE ANGLE (code structure)
   outline <file>         Code outline via tree-sitter (functions, classes)
   outline <f> --enrich   Request AI enrichment (Claude spawns Haiku)
+  outline --pending      Check enrichment status (pending/up-to-date)
   outline --enrich-all   Batch enrich project (delta: only changed files)
+  enrich                 Show enrichment instructions for Claude
 
 ATTACK STATUS
   status                 Show attack status (hit rate, intents)
@@ -1657,6 +1728,7 @@ main() {
         changes|c)  cmd_changes "$@" ;;
         files|f)    cmd_files "$@" ;;
         outline|o)  cmd_outline "$@" ;;
+        enrich|e)   cmd_enrich "$@" ;;
 
         # Pattern Search
         pattern|p)  cmd_pattern "$@" ;;
