@@ -78,6 +78,7 @@ class IntentRecord:
     files: List[str]
     tags: List[str]
     tool_use_id: Optional[str] = None  # Claude's toolu_xxx correlation key
+    project_id: Optional[str] = None  # UUID for per-project isolation
 
 
 class CodebaseIndex:
@@ -664,91 +665,109 @@ class IndexerHandler(FileSystemEventHandler):
 
 class IntentIndex:
     """
-    Bidirectional index for intent tracking.
+    Bidirectional index for intent tracking with per-project isolation.
 
-    Stores:
+    Stores (per project):
     - tag -> files: Which files are associated with each intent tag
     - file -> tags: Which intent tags are associated with each file
     - timeline: Chronological list of all intent records
     """
 
+    DEFAULT_PROJECT = "_global"  # Fallback for requests without project_id
+
     def __init__(self):
-        self.tag_to_files: Dict[str, Set[str]] = defaultdict(set)
-        self.file_to_tags: Dict[str, Set[str]] = defaultdict(set)
-        self.timeline: List[IntentRecord] = []
-        self.session_intents: Dict[str, List[IntentRecord]] = defaultdict(list)
+        # All data structures are nested by project_id
+        self.tag_to_files: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
+        self.file_to_tags: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
+        self.timeline: Dict[str, List[IntentRecord]] = defaultdict(list)
+        self.session_intents: Dict[str, Dict[str, List[IntentRecord]]] = defaultdict(lambda: defaultdict(list))
         self.lock = threading.RLock()
 
-    def record(self, tool: str, files: List[str], tags: List[str], session_id: str, tool_use_id: str = None):
+    def _project_key(self, project_id: str = None) -> str:
+        """Get project key, using default for empty/None."""
+        return project_id if project_id else self.DEFAULT_PROJECT
+
+    def record(self, tool: str, files: List[str], tags: List[str], session_id: str,
+               tool_use_id: str = None, project_id: str = None):
         """Record an intent from a tool use."""
+        proj = self._project_key(project_id)
         record = IntentRecord(
             timestamp=int(time.time()),
             session_id=session_id,
             tool=tool,
             files=files,
             tags=tags,
-            tool_use_id=tool_use_id
+            tool_use_id=tool_use_id,
+            project_id=project_id
         )
 
         with self.lock:
-            # Add to timeline
-            self.timeline.append(record)
-            self.session_intents[session_id].append(record)
+            # Add to project-specific timeline
+            self.timeline[proj].append(record)
+            self.session_intents[proj][session_id].append(record)
 
-            # Update bidirectional indexes
+            # Update project-specific bidirectional indexes
             for tag in tags:
                 for f in files:
-                    self.tag_to_files[tag].add(f)
-                    self.file_to_tags[f].add(tag)
+                    self.tag_to_files[proj][tag].add(f)
+                    self.file_to_tags[proj][f].add(tag)
 
-    def files_for_tag(self, tag: str) -> List[str]:
+    def files_for_tag(self, tag: str, project_id: str = None) -> List[str]:
         """Get files associated with a tag."""
+        proj = self._project_key(project_id)
         with self.lock:
-            return list(self.tag_to_files.get(tag, set()))
+            return list(self.tag_to_files[proj].get(tag, set()))
 
-    def tags_for_file(self, file: str) -> List[str]:
+    def tags_for_file(self, file: str, project_id: str = None) -> List[str]:
         """Get tags associated with a file."""
+        proj = self._project_key(project_id)
         with self.lock:
+            proj_file_to_tags = self.file_to_tags[proj]
             # Try exact match first, then partial
-            if file in self.file_to_tags:
-                return list(self.file_to_tags[file])
+            if file in proj_file_to_tags:
+                return list(proj_file_to_tags[file])
             # Partial match (filename only)
-            for f, tags in self.file_to_tags.items():
+            for f, tags in proj_file_to_tags.items():
                 if f.endswith(file) or file in f:
                     return list(tags)
             return []
 
-    def recent(self, since: int = None, limit: int = 50) -> List[dict]:
+    def recent(self, since: int = None, limit: int = 50, project_id: str = None) -> List[dict]:
         """Get recent intent records."""
+        proj = self._project_key(project_id)
         with self.lock:
-            records = self.timeline
+            records = self.timeline[proj]
             if since:
                 records = [r for r in records if r.timestamp >= since]
             records = records[-limit:]
             return [asdict(r) for r in reversed(records)]
 
-    def session(self, session_id: str) -> List[dict]:
+    def session(self, session_id: str, project_id: str = None) -> List[dict]:
         """Get intent records for a session."""
+        proj = self._project_key(project_id)
         with self.lock:
-            return [asdict(r) for r in self.session_intents.get(session_id, [])]
+            return [asdict(r) for r in self.session_intents[proj].get(session_id, [])]
 
-    def all_tags(self) -> List[Tuple[str, int]]:
+    def all_tags(self, project_id: str = None) -> List[Tuple[str, int]]:
         """Get all tags with file counts, sorted by count."""
+        proj = self._project_key(project_id)
         with self.lock:
             return sorted(
-                [(tag, len(files)) for tag, files in self.tag_to_files.items()],
+                [(tag, len(files)) for tag, files in self.tag_to_files[proj].items()],
                 key=lambda x: x[1],
                 reverse=True
             )
 
-    def get_stats(self) -> dict:
+    def get_stats(self, project_id: str = None) -> dict:
         """Get intent index statistics."""
+        proj = self._project_key(project_id)
         with self.lock:
             return {
-                'total_records': len(self.timeline),
-                'unique_tags': len(self.tag_to_files),
-                'unique_files': len(self.file_to_tags),
-                'sessions': len(self.session_intents)
+                'total_records': len(self.timeline[proj]),
+                'unique_tags': len(self.tag_to_files[proj]),
+                'unique_files': len(self.file_to_tags[proj]),
+                'sessions': len(self.session_intents[proj]),
+                'project_id': project_id
             }
 
 
@@ -1446,7 +1465,8 @@ def record_intent():
         "files": ["/path/to/file.py"],
         "tags": ["#authentication", "#editing"],
         "session_id": "abc123",
-        "tool_use_id": "toolu_xxx"  # Claude's correlation key
+        "tool_use_id": "toolu_xxx",  # Claude's correlation key
+        "project_id": "uuid-here"    # Per-project isolation
     }
     """
     data = request.json
@@ -1456,8 +1476,9 @@ def record_intent():
     tags = data.get('tags', [])
     session_id = data.get('session_id', 'unknown')
     tool_use_id = data.get('tool_use_id')  # Claude's toolu_xxx ID
+    project_id = data.get('project_id')  # UUID for per-project isolation
 
-    intent_index.record(tool, files, tags, session_id, tool_use_id)
+    intent_index.record(tool, files, tags, session_id, tool_use_id, project_id)
 
     return jsonify({'success': True})
 
@@ -1465,9 +1486,11 @@ def record_intent():
 @app.route('/intent/tags')
 def intent_tags():
     """Get all intent tags with counts."""
-    tags = intent_index.all_tags()
+    project_id = request.args.get('project_id')
+    tags = intent_index.all_tags(project_id)
     return jsonify({
-        'tags': [{'tag': t, 'count': c} for t, c in tags]
+        'tags': [{'tag': t, 'count': c} for t, c in tags],
+        'project_id': project_id
     })
 
 
@@ -1475,13 +1498,15 @@ def intent_tags():
 def intent_files_for_tag():
     """Get files associated with a tag."""
     tag = request.args.get('tag', '')
+    project_id = request.args.get('project_id')
     if not tag.startswith('#'):
         tag = '#' + tag
 
-    files = intent_index.files_for_tag(tag)
+    files = intent_index.files_for_tag(tag, project_id)
     return jsonify({
         'tag': tag,
-        'files': files
+        'files': files,
+        'project_id': project_id
     })
 
 
@@ -1489,10 +1514,12 @@ def intent_files_for_tag():
 def intent_tags_for_file():
     """Get tags associated with a file."""
     file = request.args.get('path', '')
-    tags = intent_index.tags_for_file(file)
+    project_id = request.args.get('project_id')
+    tags = intent_index.tags_for_file(file, project_id)
     return jsonify({
         'file': file,
-        'tags': tags
+        'tags': tags,
+        'project_id': project_id
     })
 
 
@@ -1501,15 +1528,16 @@ def intent_recent():
     """Get recent intent records."""
     since = request.args.get('since')
     limit = int(request.args.get('limit', 50))
+    project_id = request.args.get('project_id')
 
     since_ts = None
     if since:
         since_ts = int(time.time()) - int(since)
 
-    records = intent_index.recent(since_ts, limit)
+    records = intent_index.recent(since_ts, limit, project_id)
     return jsonify({
         'records': records,
-        'stats': intent_index.get_stats()
+        'stats': intent_index.get_stats(project_id)
     })
 
 
@@ -1517,17 +1545,20 @@ def intent_recent():
 def intent_session():
     """Get intent records for a session."""
     session_id = request.args.get('id', '')
-    records = intent_index.session(session_id)
+    project_id = request.args.get('project_id')
+    records = intent_index.session(session_id, project_id)
     return jsonify({
         'session_id': session_id,
-        'records': records
+        'records': records,
+        'project_id': project_id
     })
 
 
 @app.route('/intent/stats')
 def intent_stats():
     """Get intent index statistics."""
-    return jsonify(intent_index.get_stats())
+    project_id = request.args.get('project_id')
+    return jsonify(intent_index.get_stats(project_id))
 
 
 # ============================================================================
@@ -2023,6 +2054,9 @@ def get_metrics():
     """
     Unified metrics endpoint showing accuracy, tuner performance, and trends.
 
+    Query params:
+        project_id: UUID for per-project metrics (optional, for future per-project support)
+
     Returns:
         {
             "hit_at_5": 0.72,
@@ -2053,6 +2087,10 @@ def get_metrics():
             }
         }
     """
+    # Accept project_id for future per-project metrics support
+    # TODO: Implement per-project Redis key prefixing for metrics
+    project_id = request.args.get('project_id')
+
     if not RANKING_AVAILABLE or scorer is None:
         return jsonify({'error': 'Ranking not available'}), 503
 

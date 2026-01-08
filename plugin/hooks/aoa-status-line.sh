@@ -20,9 +20,11 @@ AOA_HOME_FILE="$PROJECT_ROOT/.aoa/home.json"
 
 if [ -f "$AOA_HOME_FILE" ]; then
     AOA_DATA=$(jq -r '.data_dir' "$AOA_HOME_FILE" 2>/dev/null)
+    PROJECT_ID=$(jq -r '.project_id // ""' "$AOA_HOME_FILE" 2>/dev/null)
 else
     # Fallback: use /tmp
     AOA_DATA="${AOA_DATA:-/tmp/aoa}"
+    PROJECT_ID=""
 fi
 
 STATUS_FILE="${AOA_STATUS_FILE:-$AOA_DATA/status.json}"
@@ -170,7 +172,12 @@ INTENTS=${INTENTS:-0}
 
 # === GET AOA METRICS (with timing) ===
 START_TIME=$(date +%s%N)
-METRICS=$(curl -s --max-time 0.3 "${AOA_URL}/metrics" 2>/dev/null)
+# Include project_id for per-project metrics
+METRICS_URL="${AOA_URL}/metrics"
+if [ -n "$PROJECT_ID" ]; then
+    METRICS_URL="${METRICS_URL}?project_id=${PROJECT_ID}"
+fi
+METRICS=$(curl -s --max-time 0.3 "${METRICS_URL}" 2>/dev/null)
 END_TIME=$(date +%s%N)
 
 # Calculate response time in ms

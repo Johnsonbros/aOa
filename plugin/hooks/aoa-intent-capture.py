@@ -25,12 +25,14 @@ PROJECT_ROOT = HOOK_DIR.parent.parent  # .claude/hooks/ -> .claude/ -> project/
 AOA_HOME_FILE = PROJECT_ROOT / ".aoa" / "home.json"
 
 if AOA_HOME_FILE.exists():
-    # Read AOA_DATA location from home.json
-    config = json.loads(AOA_HOME_FILE.read_text())
-    AOA_DATA = Path(config.get("data_dir", "/tmp/aoa"))
+    # Read config from home.json
+    _config = json.loads(AOA_HOME_FILE.read_text())
+    AOA_DATA = Path(_config.get("data_dir", "/tmp/aoa"))
+    PROJECT_ID = _config.get("project_id", "")  # UUID from aoa init
 else:
     # Fallback: use /tmp (isolated per-project)
     AOA_DATA = Path(os.environ.get("AOA_DATA", "/tmp/aoa"))
+    PROJECT_ID = ""
 
 AOA_DATA.mkdir(parents=True, exist_ok=True)
 STATUS_FILE = os.environ.get("AOA_STATUS_FILE", str(AOA_DATA / "status.json"))
@@ -185,6 +187,7 @@ def check_prediction_hit(session_id: str, file_path: str):
     try:
         payload = json.dumps({
             'session_id': session_id,
+            'project_id': PROJECT_ID,
             'file': file_path
         }).encode('utf-8')
 
@@ -215,6 +218,7 @@ def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id
 
     payload = json.dumps({
         "session_id": session_id,
+        "project_id": PROJECT_ID,  # UUID for per-project isolation
         "tool": tool,
         "files": files,
         "tags": tags,
@@ -241,6 +245,7 @@ def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id
             continue
         try:
             score_payload = json.dumps({
+                "project_id": PROJECT_ID,
                 "file": file_path,
                 "tags": score_tags,
             }).encode('utf-8')

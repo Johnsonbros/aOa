@@ -42,14 +42,28 @@ NC='\033[0m'
 # Project Management Commands
 # =============================================================================
 
-# Get project ID (hash of git root)
+# Get project ID from .aoa/home.json (UUID generated at init)
 get_project_id() {
-    local git_root=$(git rev-parse --show-toplevel 2>/dev/null)
-    if [ -z "$git_root" ]; then
+    local project_root=$(get_project_root)
+    if [ -z "$project_root" ]; then
         echo ""
         return
     fi
-    echo "$git_root" | md5sum | cut -c1-8
+
+    local home_file="$project_root/.aoa/home.json"
+    if [ -f "$home_file" ]; then
+        jq -r '.project_id // empty' "$home_file" 2>/dev/null
+    fi
+}
+
+# Generate a new UUID for project identification
+generate_project_id() {
+    # Try uuidgen first (Linux/macOS), fall back to Python
+    if command -v uuidgen > /dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    else
+        python3 -c "import uuid; print(uuid.uuid4())"
+    fi
 }
 
 # Get project root
@@ -84,8 +98,11 @@ cmd_init() {
         return 1
     fi
 
-    local project_id=$(get_project_id)
     local project_name=$(get_project_name)
+
+    # Check if already has a project_id, otherwise generate new one
+    local existing_id=$(get_project_id)
+    local project_id="${existing_id:-$(generate_project_id)}"
 
     echo -e "  Project: ${BOLD}${project_name}${NC}"
     echo -e "  Path:    ${DIM}${project_root}${NC}"
@@ -125,11 +142,13 @@ cmd_init() {
     echo -n "  Creating .aoa/ config......... "
     mkdir -p "$project_root/.aoa"
 
-    # home.json - points to global aOa install (NOT config.json - that's for global settings)
+    # home.json - project config with UUID identifier
     cat > "$project_root/.aoa/home.json" << EOFHOME
 {
   "aoa_home": "$AOA_HOME",
-  "data_dir": "$AOA_DATA"
+  "data_dir": "$AOA_DATA",
+  "project_id": "$project_id",
+  "project_root": "$project_root"
 }
 EOFHOME
 
