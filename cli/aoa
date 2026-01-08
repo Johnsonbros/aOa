@@ -323,11 +323,9 @@ cmd_remove() {
     rm -f "$project_root/.claude/agents/aoa-"* 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
-    # Remove project-specific home.json (leave global config.json intact)
-    echo -n "  Removing .aoa/home.json....... "
-    rm -f "$project_root/.aoa/home.json" 2>/dev/null || true
-    # Remove .aoa/ folder only if empty (no global config present)
-    rmdir "$project_root/.aoa" 2>/dev/null || true
+    # Remove entire .aoa/ folder (full cleanup)
+    echo -n "  Removing .aoa/ folder......... "
+    rm -rf "$project_root/.aoa" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Remove from projects.json
