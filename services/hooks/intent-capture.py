@@ -251,8 +251,25 @@ def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id
         for file_path in files:
             check_prediction_hit(session_id, file_path)
 
-    # Get file sizes for baseline calculation (used in intent display)
+    # Get file sizes and project ID for baseline calculation
     file_sizes = get_file_sizes(files)
+
+    # Get project ID from .aoa/home.json
+    project_id = None
+    try:
+        cwd = os.getcwd()
+        for _ in range(5):  # Check up to 5 levels up
+            home_file = os.path.join(cwd, '.aoa', 'home.json')
+            if os.path.exists(home_file):
+                with open(home_file) as f:
+                    project_id = json.load(f).get('project_id')
+                    break
+            parent = os.path.dirname(cwd)
+            if parent == cwd:
+                break
+            cwd = parent
+    except Exception:
+        pass
 
     payload = json.dumps({
         "session_id": session_id,
@@ -260,6 +277,7 @@ def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id
         "files": files,
         "tags": tags,
         "tool_use_id": tool_use_id,  # Claude's correlation key
+        "project_id": project_id,  # UUID for per-project isolation
         "file_sizes": file_sizes,  # For baseline token estimation
     }).encode('utf-8')
 
