@@ -1206,10 +1206,12 @@ cmd_intent_recent() {
     echo ""
     echo -e "${BOLD}SAVINGS${NC}         ${GREEN}↓${tokens_k}k tokens${NC} ${DIM}(${hit_pct_int}%)${NC}  ${GREEN}⚡${time_saved_sec}s faster${NC}"
     echo -e "${BOLD}PREDICTIONS${NC}     ${hit_pct_int}% accuracy (${hits} of ${evaluated} hits)"
+    echo -e "${BOLD}REDUCTION${NC}       ${CYAN}aOa finds exact locations${NC}, so Claude reads only what it needs"
+    echo -e "                ${DIM}e.g. 18k → 1.1k means Claude read 1,100 tokens instead of the full 18,000${NC}"
     echo ""
     echo -e "${DIM}─────────────────────────────────────────────────────────────────────────────────────────────${NC}"
     echo ""
-    printf "%-12s %-45s %-50s %s\n" "ACTION" "⚡ aOa IMPACT" "TAGS" "TARGET"
+    echo -e "ACTION       ⚡ aOa IMPACT ${DIM}(tokens)${NC}                        TAGS                                               TARGET"
 
     # Process records
     echo "$result" | jq -r --arg project_root "$(get_project_root)" '.records[] |
@@ -1236,8 +1238,8 @@ cmd_intent_recent() {
 
         # If we have file size, use it for more accurate baseline
         if [ "$file_size" -gt 0 ] 2>/dev/null; then
-            # BASE = file size in bytes / 3 (rough token estimate)
-            base_tokens=$((file_size / 3))
+            # BASE = file size in bytes / 4 (Claude uses ~4 chars per token)
+            base_tokens=$((file_size / 4))
 
             # Format with k suffix if > 1000
             if [ $base_tokens -ge 1000 ]; then

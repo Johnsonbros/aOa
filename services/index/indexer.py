@@ -1438,7 +1438,7 @@ def file_meta():
             'size': meta.size,
             'language': meta.language,
             'mtime': meta.mtime,
-            'tokens_estimate': meta.size // 3  # Rough estimate: 3 bytes per token
+            'tokens_estimate': meta.size // 4  # Claude uses ~4 chars per token
         })
     else:
         return jsonify({'error': 'File not in index'}), 404

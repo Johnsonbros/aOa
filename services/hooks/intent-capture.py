@@ -182,7 +182,10 @@ def check_prediction_hit(session_id: str, file_path: str):
 
 
 def get_file_sizes(files: list) -> dict:
-    """Get file sizes from index for baseline token calculation."""
+    """Get file sizes for baseline token calculation.
+
+    Tries index first, falls back to filesystem stat().
+    """
     file_sizes = {}
 
     # Try to get project ID from .aoa/home.json
@@ -208,16 +211,23 @@ def get_file_sizes(files: list) -> dict:
         if file_path.startswith('pattern:') or not file_path.startswith('/'):
             continue
 
+        # First try: filesystem stat (fast, always works)
+        try:
+            stat_result = os.stat(file_path)
+            file_sizes[file_path] = stat_result.st_size
+            continue  # Got it, no need to hit the index
+        except OSError:
+            pass  # File might not exist, try index
+
+        # Second try: query index for file metadata
         try:
             # Convert absolute path to project-relative
-            # Try common project roots
             rel_path = file_path
             for prefix in ['/home/corey/aOa/', '/home/corey/projects/', '/codebase/', '/userhome/']:
                 if file_path.startswith(prefix):
                     rel_path = file_path[len(prefix):]
                     break
 
-            # Query index for file metadata
             from urllib.parse import quote
             encoded_path = quote(rel_path, safe='')
             url = f"{AOA_URL}/file/meta?path={encoded_path}"
@@ -231,8 +241,7 @@ def get_file_sizes(files: list) -> dict:
             if 'size' in data:
                 file_sizes[file_path] = data['size']
         except (URLError, Exception):
-            # If we can't get size, skip it (don't block)
-            pass
+            pass  # If we can't get size, skip it (don't block)
 
     return file_sizes
 
