@@ -53,15 +53,21 @@ Group pending files into batches of 15. For each batch:
 
 3. **Store tags** after processing:
    ```bash
+   # Get project ID from .aoa/home.json
+   PROJECT_ID=$(jq -r '.project_id' .aoa/home.json 2>/dev/null || echo "")
+
    curl -s -X POST localhost:8080/outline/enriched \
      -H "Content-Type: application/json" \
-     -d '{
-       "file": "<filepath>",
-       "symbols": [
-         {"name": "funcName", "kind": "function", "line": 10, "end_line": 25, "tags": ["#auth", "#validation"]}
+     -d "{
+       \"file\": \"<filepath>\",
+       \"project\": \"${PROJECT_ID}\",
+       \"symbols\": [
+         {\"name\": \"funcName\", \"kind\": \"function\", \"line\": 10, \"end_line\": 25, \"tags\": [\"#auth\", \"#validation\"]}
        ]
-     }'
+     }"
    ```
+
+   **IMPORTANT**: Always include the project ID from `.aoa/home.json`.
 
 ### Step 3: Report Progress
 

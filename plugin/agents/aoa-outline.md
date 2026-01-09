@@ -43,19 +43,25 @@ For each symbol in each outline, generate 2-5 semantic tags:
 
 ## Step 4: Store Tags in Index
 
-For each file, POST the symbol-level tags:
+For each file, POST the symbol-level tags with the project ID:
 
 ```bash
+# Get project ID from .aoa/home.json in the current working directory
+PROJECT_ID=$(jq -r '.project_id' .aoa/home.json 2>/dev/null || echo "")
+
 curl -s -X POST localhost:8080/outline/enriched \
   -H "Content-Type: application/json" \
-  -d '{
-    "file": "<filepath>",
-    "symbols": [
-      {"name": "functionName", "kind": "function", "line": 10, "end_line": 25, "tags": ["#auth", "#validation"]},
-      {"name": "ClassName", "kind": "class", "line": 30, "end_line": 80, "tags": ["#model", "#database"]}
+  -d "{
+    \"file\": \"<filepath>\",
+    \"project\": \"${PROJECT_ID}\",
+    \"symbols\": [
+      {\"name\": \"functionName\", \"kind\": \"function\", \"line\": 10, \"end_line\": 25, \"tags\": [\"#auth\", \"#validation\"]},
+      {\"name\": \"ClassName\", \"kind\": \"class\", \"line\": 30, \"end_line\": 80, \"tags\": [\"#model\", \"#database\"]}
     ]
-  }'
+  }"
 ```
+
+**IMPORTANT**: Always include the project ID from `.aoa/home.json` to ensure tags are associated with the correct project.
 
 ## Step 5: Report Progress
 
