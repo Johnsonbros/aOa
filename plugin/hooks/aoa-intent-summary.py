@@ -12,10 +12,22 @@ import sys
 import json
 import os
 import time
+from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
 AOA_URL = os.environ.get("AOA_URL", "http://localhost:8080")
+
+# Get project ID from .aoa/home.json
+HOOK_DIR = Path(__file__).parent
+PROJECT_ROOT = HOOK_DIR.parent.parent
+AOA_HOME_FILE = PROJECT_ROOT / ".aoa" / "home.json"
+
+if AOA_HOME_FILE.exists():
+    _config = json.loads(AOA_HOME_FILE.read_text())
+    PROJECT_ID = _config.get("project_id", "")
+else:
+    PROJECT_ID = ""
 
 # ANSI colors - brighter for key metrics
 CYAN = "\033[96m"       # Bright cyan for aOa brand
@@ -107,10 +119,56 @@ def format_output(data: dict, elapsed_ms: float) -> str:
     return f"{header} {DIM}│{RESET} {tags_display}"
 
 
+def get_recent_files(records: list) -> list:
+    """Extract unique files from recent records that may need AI tagging."""
+    files = set()
+    for record in records[:10]:
+        for f in record.get('files', []):
+            # Must be absolute path, not a pattern, and have a file extension
+            if (f.startswith('/') and
+                not f.startswith('pattern:') and
+                '.' in os.path.basename(f)):  # Has extension = is a file
+                files.add(f)
+    return list(files)[:5]
+
+
+def request_haiku_tagging(files: list, prompt: str, session_id: str, project_id: str) -> dict:
+    """Build Haiku tagging request as additionalContext."""
+    if not files:
+        return None
+
+    file_list = ', '.join([os.path.basename(f) for f in files])
+    prompt_snippet = prompt[:200] if prompt else "coding session"
+
+    context = f"""## aOa Auto-Tag Request
+
+Based on recent file activity, spawn a Haiku task to generate semantic tags.
+
+Files: {file_list}
+User context: {prompt_snippet}
+
+Task(model="haiku", prompt="Generate 3-5 semantic hashtags for: {file_list}. Context: {prompt_snippet}. Focus on what the code does, domain, patterns. Return JSON array only: [\"#tag1\", \"#tag2\"]")
+
+After getting tags, store via:
+curl -s -X POST localhost:8080/intent -H "Content-Type: application/json" -d '{{"session_id": "{session_id}", "project_id": "{project_id}", "files": {json.dumps(files)}, "tags": <haiku_tags>}}'
+"""
+
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": context
+        }
+    }
+
+
 def main():
-    # Read stdin (hook input) but we don't need it
+    # Read stdin for user prompt context
+    prompt = ""
+    session_id = ""
     try:
-        json.load(sys.stdin)
+        hook_input = json.load(sys.stdin)
+        prompt = hook_input.get('prompt', '')
+        session_id = hook_input.get('session_id', '')
     except Exception:
         pass
 
@@ -125,8 +183,17 @@ def main():
         print(f"{CYAN}{BOLD}⚡ aOa{RESET} {DIM}│{RESET} calibrating... {DIM}(use Claude to build intent){RESET}")
         return
 
+    # Print status line to stderr (visible to user)
     output = format_output(data, elapsed_ms)
     print(output)
+
+    # Request Haiku tagging for recent files (stdout JSON for Claude)
+    records = data.get('records', [])
+    recent_files = get_recent_files(records)
+    if recent_files and prompt:
+        haiku_request = request_haiku_tagging(recent_files, prompt, session_id, PROJECT_ID)
+        if haiku_request:
+            print(json.dumps(haiku_request))
 
 
 if __name__ == "__main__":

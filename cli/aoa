@@ -1341,6 +1341,12 @@ cmd_intent_recent() {
                 saved=$([ $base_tokens -gt 0 ] && echo "$base_tokens" || echo "15.2k")
                 time_saved="-"
                 ;;
+            HaikuTag)
+                # AI-generated tags - no reduction, just enrichment
+                actual="AI"
+                saved="AI"
+                time_saved="-"
+                ;;
             *)
                 actual="50"
                 saved=$([ $base_tokens -gt 0 ] && echo "$((base_tokens - 50))" || echo "3.1k")
@@ -1361,6 +1367,8 @@ cmd_intent_recent() {
         local impact
         if [ "$saved" = "-" ]; then
             impact="${DIM}no savings${NC}"
+        elif [ "$saved" = "AI" ]; then
+            impact="${CYAN}${BOLD}AI-generated${NC} semantic tags"
         else
             # Calculate actual percentage if we have base_tokens
             local pct pct_color="${GREEN}"
