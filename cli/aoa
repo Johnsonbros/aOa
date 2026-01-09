@@ -490,54 +490,6 @@ cmd_projects() {
 }
 
 # =============================================================================
-# Status Commands
-# =============================================================================
-
-cmd_status() {
-    local watch=false
-    local json=false
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -w|--watch) watch=true; shift ;;
-            -j|--json) json=true; shift ;;
-            *) shift ;;
-        esac
-    done
-
-    if $json; then
-        curl -s "${STATUS_URL}/status/json" | jq .
-        return
-    fi
-
-    if $watch; then
-        echo -e "${DIM}Press Ctrl+C to exit${NC}"
-        echo ""
-        while true; do
-            # Move cursor up and clear line
-            tput cuu1 2>/dev/null || true
-            tput el 2>/dev/null || true
-
-            # Get and display status
-            local line=$(curl -s "${STATUS_URL}/status" 2>/dev/null || echo "Status service unavailable")
-            echo -e "${CYAN}${line}${NC}"
-
-            sleep 1
-        done
-    else
-        local line=$(curl -s "${STATUS_URL}/status" 2>/dev/null)
-        if [ -n "$line" ]; then
-            echo -e "${CYAN}┌─────────────────────────────────────────────────────────────────────────────┐${NC}"
-            echo -e "${CYAN}│${NC} ${line} ${CYAN}│${NC}"
-            echo -e "${CYAN}└─────────────────────────────────────────────────────────────────────────────┘${NC}"
-        else
-            echo -e "${RED}Status service not available at ${STATUS_URL}${NC}"
-            return 1
-        fi
-    fi
-}
-
-# =============================================================================
 # Local Index Commands (default)
 # =============================================================================
 
@@ -1845,52 +1797,158 @@ cmd_memory() {
 }
 
 cmd_health() {
-    echo -e "${BOLD}aOa Angles${NC}"
+    local project_root=$(get_project_root)
+    local all_ok=true
+    local warnings=0
+
+    echo -e "${BOLD}aOa Health Check${NC}"
+    echo -e "────────────────────────────────────────"
     echo ""
 
-    # Check index service (Symbol + Intent angles)
-    echo -n "Symbol/Intent (${INDEX_URL}): "
-    if curl -s --connect-timeout 2 "${INDEX_URL}/health" > /dev/null 2>&1; then
-        local idx_health=$(curl -s "${INDEX_URL}/health")
-        local mode=$(echo "$idx_health" | jq -r '.mode // "legacy"')
+    # =========================================================================
+    # SERVICES
+    # =========================================================================
+    echo -e "${BOLD}Services${NC}"
 
-        # Handle both legacy and global modes
+    # Check Docker
+    echo -n "  Docker:        "
+    if docker ps --filter "name=aoa" --format "{{.Names}}" 2>/dev/null | grep -q "aoa"; then
+        echo -e "${GREEN}✓${NC} Container running"
+    else
+        echo -e "${RED}✗${NC} Container not found"
+        all_ok=false
+    fi
+
+    # Check Index service
+    echo -n "  Index:         "
+    local idx_health=""
+    if curl -s --connect-timeout 2 "${INDEX_URL}/health" > /dev/null 2>&1; then
+        idx_health=$(curl -s "${INDEX_URL}/health")
+        local mode=$(echo "$idx_health" | jq -r '.mode // "legacy"')
         if [ "$mode" = "global" ]; then
             local project_count=$(echo "$idx_health" | jq '.projects | length // 0')
-            if [ "$project_count" -gt 0 ]; then
-                echo -e "${GREEN}✓${NC} ${project_count} project(s) indexed (global mode)"
-            else
-                echo -e "${YELLOW}!${NC} Global mode ${DIM}(no projects registered - run 'aoa init')${NC}"
-            fi
+            echo -e "${GREEN}✓${NC} Running (${project_count} project(s))"
         else
-            # Legacy mode
             local local_files=$(echo "$idx_health" | jq -r '.local.files // 0')
             local local_symbols=$(echo "$idx_health" | jq -r '.local.symbols // 0')
-            echo -e "${GREEN}✓${NC} ${local_files} files, ${local_symbols} symbols (local)"
-        fi
-
-        local repo_count=$(echo "$idx_health" | jq '.repos | length // 0')
-        if [ "$repo_count" != "0" ] && [ "$repo_count" != "null" ]; then
-            echo -e "                              ${DIM}+ ${repo_count} knowledge repos${NC}"
+            echo -e "${GREEN}✓${NC} ${local_files} files, ${local_symbols} symbols"
         fi
     else
-        echo -e "${RED}✗ Not running${NC}"
+        echo -e "${RED}✗${NC} Not responding"
+        all_ok=false
     fi
 
-    # Check status service (Strike angle metrics)
-    echo -n "Strike/Metrics (${STATUS_URL}): "
-    if curl -s --connect-timeout 2 "${STATUS_URL}/health" > /dev/null 2>&1; then
-        echo -e "${GREEN}✓${NC} Running"
-    else
-        echo -e "${RED}✗ Not running${NC}"
-    fi
-
-    # Check Redis (predictions, scores)
-    echo -n "Redis (predictions): "
-    if curl -s --connect-timeout 2 "${STATUS_URL}/session" > /dev/null 2>&1; then
+    # Check Redis
+    echo -n "  Redis:         "
+    if docker exec aoa redis-cli ping > /dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Connected"
+    elif docker exec aoa-redis-1 redis-cli ping > /dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} Connected"
     else
-        echo -e "${YELLOW}? Unknown${NC}"
+        echo -e "${YELLOW}!${NC} Not connected ${DIM}(predictions disabled)${NC}"
+        warnings=$((warnings + 1))
+    fi
+
+    echo ""
+
+    # =========================================================================
+    # PROJECT CONFIGURATION
+    # =========================================================================
+    echo -e "${BOLD}Project Configuration${NC}"
+
+    # Check if initialized
+    echo -n "  Initialized:   "
+    if [ -f "$project_root/.aoa/home.json" ]; then
+        local project_id=$(jq -r '.project_id // "none"' "$project_root/.aoa/home.json" 2>/dev/null)
+        echo -e "${GREEN}✓${NC} ${DIM}${project_id:0:8}...${NC}"
+    else
+        echo -e "${RED}✗${NC} Not initialized ${DIM}(run 'aoa init')${NC}"
+        all_ok=false
+    fi
+
+    # Check hooks (essential: intent-capture + status-line)
+    echo -n "  Hooks:         "
+    local hook_count=0
+    [ -f "$project_root/.claude/hooks/aoa-intent-capture.py" ] && hook_count=$((hook_count + 1))
+    [ -f "$project_root/.claude/hooks/aoa-status-line.sh" ] && hook_count=$((hook_count + 1))
+
+    if [ "$hook_count" -eq 2 ]; then
+        echo -e "${GREEN}✓${NC} Essential hooks installed"
+    elif [ "$hook_count" -gt 0 ]; then
+        echo -e "${YELLOW}!${NC} ${hook_count}/2 essential hooks ${DIM}(partial)${NC}"
+        warnings=$((warnings + 1))
+    else
+        echo -e "${RED}✗${NC} No hooks found"
+        all_ok=false
+    fi
+
+    # Check CLAUDE.md
+    echo -n "  CLAUDE.md:     "
+    if [ -f "$project_root/CLAUDE.md" ]; then
+        if grep -q "aoa search" "$project_root/CLAUDE.md" 2>/dev/null; then
+            echo -e "${GREEN}✓${NC} Present with aOa instructions"
+        else
+            echo -e "${YELLOW}!${NC} Present ${DIM}(missing aOa instructions)${NC}"
+            warnings=$((warnings + 1))
+        fi
+    else
+        echo -e "${YELLOW}!${NC} Not found ${DIM}(optional)${NC}"
+        warnings=$((warnings + 1))
+    fi
+
+    echo ""
+
+    # =========================================================================
+    # FUNCTIONALITY
+    # =========================================================================
+    echo -e "${BOLD}Functionality${NC}"
+
+    # Test search
+    echo -n "  Search:        "
+    local search_result=$(curl -s --connect-timeout 2 "${INDEX_URL}/symbol?q=test" 2>/dev/null)
+    if [ -n "$search_result" ]; then
+        local ms=$(echo "$search_result" | jq -r '.ms // "?"')
+        echo -e "${GREEN}✓${NC} Working ${DIM}(${ms}ms)${NC}"
+    else
+        echo -e "${RED}✗${NC} Not working"
+        all_ok=false
+    fi
+
+    # Check intent capture
+    echo -n "  Intent:        "
+    local intent_result=$(curl -s --connect-timeout 2 "${INDEX_URL}/intent/recent?limit=1" 2>/dev/null)
+    if [ -n "$intent_result" ]; then
+        local total=$(echo "$intent_result" | jq -r '.stats.total_records // 0')
+        local tags=$(echo "$intent_result" | jq -r '.stats.unique_tags // 0')
+        echo -e "${GREEN}✓${NC} ${total} recorded, ${tags} tags"
+    else
+        echo -e "${YELLOW}!${NC} No data ${DIM}(fresh install)${NC}"
+        warnings=$((warnings + 1))
+    fi
+
+    # Check semantic compression (outline angle)
+    echo -n "  Outline:       "
+    if docker exec aoa python3 -c "import tree_sitter" > /dev/null 2>&1 || \
+       docker exec aoa-index-1 python3 -c "import tree_sitter" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Semantic compression ready"
+    else
+        echo -e "${YELLOW}!${NC} Semantic compression unavailable"
+        warnings=$((warnings + 1))
+    fi
+
+    echo ""
+
+    # =========================================================================
+    # SUMMARY
+    # =========================================================================
+    echo -e "────────────────────────────────────────"
+    if $all_ok && [ "$warnings" -eq 0 ]; then
+        echo -e "Status: ${GREEN}✓ All systems operational${NC}"
+    elif $all_ok; then
+        echo -e "Status: ${YELLOW}! Operational with ${warnings} warning(s)${NC}"
+    else
+        echo -e "Status: ${RED}✗ Issues detected${NC}"
+        echo -e "${DIM}Run 'aoa init' to configure this project${NC}"
     fi
 }
 
@@ -2102,17 +2160,14 @@ PROJECT SEARCH
   files [pattern]        List indexed files
 
 OUTLINE ANGLE (code structure + semantic tags)
-  outline <file>         Code outline via tree-sitter (functions, classes)
+  outline <file>         Code structure (functions, classes, methods)
   outline --pending      Check tagging status (pending/tagged)
   outline --enrich-all   Show files needing tags (detailed)
 
   To add semantic tags: In Claude Code, say "tag the codebase"
   Then search: aoa search "#authentication"
 
-ATTACK STATUS
-  status                 Show attack status (hit rate, intents)
-  status --watch         Live updating status
-  status --json          Full metrics as JSON
+SESSION
   history [limit]        Recent events
   reset [session|weekly] Reset counters
 
@@ -2177,8 +2232,7 @@ main() {
         remove|rm)  cmd_remove "$@" ;;
         projects)   cmd_projects "$@" ;;
 
-        # Status
-        status|s)   cmd_status "$@" ;;
+        # Session
         history|h)  cmd_history "$@" ;;
         reset)      cmd_reset "$@" ;;
 
