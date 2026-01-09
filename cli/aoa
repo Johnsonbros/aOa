@@ -204,7 +204,7 @@ EOFREADME
     fi
 
     # Copy USAGE.md - goal-oriented guide for Claude
-    cp "$AOA_DATA/USAGE.md" "$project_root/.aoa/USAGE.md" 2>/dev/null || true
+    cp "$AOA_HOME/plugin/USAGE.md" "$project_root/.aoa/USAGE.md" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Add aOa reference to CLAUDE.md
