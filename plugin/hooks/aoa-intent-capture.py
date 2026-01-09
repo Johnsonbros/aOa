@@ -71,9 +71,13 @@ def extract_files(data: dict) -> list:
     # Extract paths from bash commands
     if 'command' in data.get('tool_input', {}):
         cmd = data['tool_input']['command']
-        # Match file paths in command
-        matches = re.findall(r'/[\w./\-_]+\.(?:py|js|ts|go|rs|java|c|cpp|h|md|json|yaml|yml|sh|sql)', cmd)
-        files.update(matches)
+        # Match file paths in command - require at least one directory component
+        # and extension must be at word boundary (not .claude matching .c)
+        matches = re.findall(r'/[\w\-_]+(?:/[\w.\-_]+)+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|sh|sql)\b', cmd)
+        # Filter out paths that are too short or look like partial matches
+        for m in matches:
+            if len(m) > 5 and '/' in m[1:]:  # Must have real path structure
+                files.add(m)
 
     # Extract from grep/glob patterns
     if 'pattern' in data.get('tool_input', {}):
