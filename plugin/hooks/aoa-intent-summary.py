@@ -132,6 +132,25 @@ def get_recent_files(records: list) -> list:
     return list(files)[:5]
 
 
+def get_pending_outline_files(recent_files: list, project_id: str) -> list:
+    """Check which recent files need symbol-level tagging."""
+    if not recent_files:
+        return []
+
+    try:
+        url = f"{AOA_URL}/outline/pending"
+        if project_id:
+            url += f"?project={project_id}"
+        req = Request(url)
+        with urlopen(req, timeout=1) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            pending = {p['file'] for p in data.get('pending', [])}
+            # Return recent files that are pending outline enrichment
+            return [f for f in recent_files if any(f.endswith(p) for p in pending)]
+    except Exception:
+        return []
+
+
 def request_haiku_tagging(files: list, prompt: str, session_id: str, project_id: str) -> dict:
     """Build Haiku tagging request as additionalContext."""
     if not files:
@@ -159,6 +178,31 @@ curl -s -X POST localhost:8080/intent -H "Content-Type: application/json" -d '{{
             "additionalContext": context
         }
     }
+
+
+def request_outline_enrichment(files: list, project_id: str) -> str:
+    """Build outline enrichment request for files needing symbol tags."""
+    if not files:
+        return ""
+
+    file_list = ', '.join([os.path.basename(f) for f in files])
+
+    return f"""
+## aOa Outline Enrichment Request
+
+These files need symbol-level semantic tags (first touch or modified):
+
+Files: {file_list}
+
+For each file, run:
+1. `aoa outline <file> --json` to get symbols
+2. Spawn Haiku to tag each symbol with 2-3 semantic hashtags
+3. Store via: `echo '<enriched json>' | aoa outline --store`
+
+This creates searchable symbol-level tags like:
+  function validate_token → #authentication #validation
+  class UserSession → #session-management #state
+"""
 
 
 def main():
@@ -191,8 +235,17 @@ def main():
     records = data.get('records', [])
     recent_files = get_recent_files(records)
     if recent_files and prompt:
+        # File-level tagging (always)
         haiku_request = request_haiku_tagging(recent_files, prompt, session_id, PROJECT_ID)
+
+        # Symbol-level tagging (only if pending)
+        pending_outline = get_pending_outline_files(recent_files, PROJECT_ID)
+        outline_request = request_outline_enrichment(pending_outline, PROJECT_ID)
+
         if haiku_request:
+            # Append outline request to additionalContext if needed
+            if outline_request:
+                haiku_request["hookSpecificOutput"]["additionalContext"] += outline_request
             print(json.dumps(haiku_request))
 
 

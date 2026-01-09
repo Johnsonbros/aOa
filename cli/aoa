@@ -202,7 +202,43 @@ To change aOa settings (port, confidence threshold, etc.),
 edit the config.json in your global aOa installation.
 EOFREADME
     fi
+
+    # Copy USAGE.md - goal-oriented guide for Claude
+    cp "$AOA_DATA/USAGE.md" "$project_root/.aoa/USAGE.md" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
+
+    # Add aOa reference to CLAUDE.md
+    echo -n "  Updating CLAUDE.md............ "
+    local claude_md="$project_root/CLAUDE.md"
+    local aoa_marker="# aOa Integration"
+
+    if [ -f "$claude_md" ]; then
+        # Check if already has aOa section
+        if ! grep -q "$aoa_marker" "$claude_md" 2>/dev/null; then
+            # Append aOa reference
+            cat >> "$claude_md" << 'EOFCLAUDE'
+
+# aOa Integration
+
+This project uses aOa for fast code intelligence. See `.aoa/USAGE.md` for goals and commands.
+
+**Rule: Use `aoa` CLI commands, never raw curl.**
+EOFCLAUDE
+            echo -e "${GREEN}✓${NC} ${DIM}(appended)${NC}"
+        else
+            echo -e "${YELLOW}✓${NC} ${DIM}(already present)${NC}"
+        fi
+    else
+        # Create minimal CLAUDE.md with aOa section
+        cat > "$claude_md" << 'EOFCLAUDE'
+# aOa Integration
+
+This project uses aOa for fast code intelligence. See `.aoa/USAGE.md` for goals and commands.
+
+**Rule: Use `aoa` CLI commands, never raw curl.**
+EOFCLAUDE
+        echo -e "${GREEN}✓${NC} ${DIM}(created)${NC}"
+    fi
 
     # Copy or merge settings template
     echo -n "  Merging settings.............. "
@@ -1356,8 +1392,9 @@ cmd_intent_recent() {
                 time_saved="<5ms"
                 ;;
             Grep|Glob)
-                actual="30"
-                saved=$([ $base_tokens -gt 0 ] && echo "$((base_tokens - 30))" || echo "2.7k")
+                # Glob/Grep are slow - show warning, not fake reduction
+                actual="SLOW"
+                saved="SLOW"
                 time_saved="~2.3s"
                 ;;
             Read)
@@ -1409,6 +1446,9 @@ cmd_intent_recent() {
         local impact
         if [ "$saved" = "-" ]; then
             impact="${DIM}no savings${NC}"
+        elif [ "$saved" = "SLOW" ]; then
+            # Glob/Grep warning - suggest aoa search
+            impact="${YELLOW}⚠️ ${time_saved}${NC} ${DIM}(use 'aoa search' for <5ms)${NC}"
         elif [ "$saved" = "AI" ]; then
             if [ "$action" = "Outline" ]; then
                 impact="${CYAN}${BOLD}AI-generated${NC} symbol tags"
