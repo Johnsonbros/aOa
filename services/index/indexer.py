@@ -1000,15 +1000,38 @@ class IntentIndex:
             )
 
     def get_stats(self, project_id: str = None) -> dict:
-        """Get intent index statistics."""
+        """Get intent index statistics including token savings."""
         proj = self._project_key(project_id)
         with self.lock:
+            # Calculate token savings from records with both baseline and actual
+            total_baseline = 0
+            total_actual = 0
+            measured_count = 0
+
+            for record in self.timeline[proj]:
+                if record.output_size and record.output_size > 0 and record.file_sizes:
+                    # Get baseline from file_sizes (first file)
+                    for f, size in record.file_sizes.items():
+                        if size > 0:
+                            total_baseline += size // 4  # Convert bytes to ~tokens
+                            total_actual += record.output_size // 4
+                            measured_count += 1
+                            break  # Only count first file per record
+
+            tokens_saved = max(0, total_baseline - total_actual)
+
             return {
                 'total_records': len(self.timeline[proj]),
                 'unique_tags': len(self.tag_to_files[proj]),
                 'unique_files': len(self.file_to_tags[proj]),
                 'sessions': len(self.session_intents[proj]),
-                'project_id': project_id
+                'project_id': project_id,
+                'savings': {
+                    'tokens': tokens_saved,
+                    'baseline': total_baseline,
+                    'actual': total_actual,
+                    'measured_records': measured_count
+                }
             }
 
 
@@ -2635,6 +2658,23 @@ def get_metrics():
         else:
             trend = 'insufficient_data'
 
+        # Get real savings from intent index (file_size vs output_size measurements)
+        intent_savings = {}
+        if intent_index:
+            intent_stats = intent_index.get_stats(project_id)
+            intent_savings = intent_stats.get('savings', {})
+
+        # Total savings = Redis + Intent (Intent is the primary/real source)
+        total_tokens_saved = tokens_saved + intent_savings.get('tokens', 0)
+        savings_data = {
+            'tokens': total_tokens_saved,
+            'baseline': intent_savings.get('baseline', 0),
+            'actual': intent_savings.get('actual', 0),
+            'measured_records': intent_savings.get('measured_records', 0),
+            'time_ms': time_saved_ms,
+            'time_sec': round(time_saved_ms / 1000, 1),
+        }
+
         return jsonify({
             # Primary metrics
             'hit_at_5': hit_at_5,
@@ -2658,12 +2698,8 @@ def get_metrics():
                 'hit_rate': round(legacy_rate, 1),
             },
 
-            # Savings (cumulative)
-            'savings': {
-                'tokens': tokens_saved,
-                'time_ms': time_saved_ms,
-                'time_sec': round(time_saved_ms / 1000, 1),
-            }
+            # Savings (cumulative) - include intent index real measurements
+            'savings': savings_data
         })
 
     except Exception as e:

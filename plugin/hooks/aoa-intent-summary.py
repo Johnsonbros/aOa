@@ -152,7 +152,7 @@ def get_pending_outline_files(recent_files: list, project_id: str) -> list:
 
 
 def request_haiku_tagging(files: list, prompt: str, session_id: str, project_id: str) -> dict:
-    """Build Haiku tagging request as additionalContext."""
+    """Build Haiku tagging request as additionalContext for Claude to execute."""
     if not files:
         return None
 
@@ -166,10 +166,10 @@ Based on recent file activity, spawn a Haiku task to generate semantic tags.
 Files: {file_list}
 User context: {prompt_snippet}
 
-Task(model="haiku", prompt="Generate 3-5 semantic hashtags for: {file_list}. Context: {prompt_snippet}. Focus on what the code does, domain, patterns. Return JSON array only: [\"#tag1\", \"#tag2\"]")
+Task(model="haiku", prompt="Generate 5-8 semantic hashtags for: {file_list}. Context: {prompt_snippet}. Focus on what the code does, domain, patterns. Return JSON array only: [\"#tag1\", \"#tag2\"]")
 
 After getting tags, store via:
-curl -s -X POST localhost:8080/intent -H "Content-Type: application/json" -d '{{"session_id": "{session_id}", "project_id": "{project_id}", "files": {json.dumps(files)}, "tags": <haiku_tags>}}'
+curl -s -X POST localhost:8080/intent -H "Content-Type: application/json" -d '{{"session_id": "{session_id}", "project_id": "{project_id}", "tool": "Intent", "files": {json.dumps(files)}, "tags": <haiku_tags>}}'
 """
 
     return {

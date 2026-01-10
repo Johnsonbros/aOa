@@ -19,6 +19,7 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
@@ -26,6 +27,17 @@ AOA_URL = os.environ.get("AOA_URL", "http://localhost:8080")
 MIN_INTENTS = 5  # Don't predict until we have enough data (lower for active projects)
 MAX_SNIPPET_LINES = 15  # Lines per file snippet
 MAX_FILES = 3  # Maximum files to include
+
+# Load project_id from .aoa/home.json (created by aoa init)
+HOOK_DIR = Path(__file__).parent
+PROJECT_ROOT = HOOK_DIR.parent.parent  # plugin/hooks/ -> plugin/ -> project/
+AOA_HOME_FILE = PROJECT_ROOT / ".aoa" / "home.json"
+
+if AOA_HOME_FILE.exists():
+    _config = json.loads(AOA_HOME_FILE.read_text())
+    PROJECT_ID = _config.get("project_id", "")
+else:
+    PROJECT_ID = ""
 
 # Stopwords for keyword extraction
 STOPWORDS = {
@@ -136,23 +148,47 @@ def format_context(files: list, keywords: list) -> str:
     return "\n".join(parts)
 
 
-def log_prediction(session_id: str, files: list, keywords: list):
-    """Log prediction for hit/miss tracking."""
+def log_prediction(session_id: str, project_id: str, files: list, keywords: list):
+    """Log prediction for hit/miss tracking and intent display."""
     if not files:
         return
 
+    file_paths = [f.get('path', '') for f in files]
+    avg_confidence = sum(f.get('confidence', 0) for f in files) / len(files) if files else 0
+
+    # Log to /predict/log for hit/miss tracking
     try:
         payload = json.dumps({
             'session_id': session_id,
-            'predicted_files': [f.get('path', '') for f in files],
+            'predicted_files': file_paths,
             'tags': keywords[:5],
             'trigger_file': 'UserPromptSubmit',
-            'confidence': sum(f.get('confidence', 0) for f in files) / len(files)
+            'confidence': avg_confidence
         }).encode('utf-8')
 
         req = Request(
             f"{AOA_URL}/predict/log",
             data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        urlopen(req, timeout=1)
+    except (URLError, Exception):
+        pass  # Fire and forget
+
+    # Record as Predict intent for aoa intent display
+    try:
+        intent_payload = json.dumps({
+            'session_id': session_id,
+            'project_id': project_id,
+            'tool': 'Predict',
+            'files': file_paths[:5],  # Limit to 5 files
+            'tags': [f"#{k}" for k in keywords[:3]] + [f"@{avg_confidence:.0%}"]
+        }).encode('utf-8')
+
+        req = Request(
+            f"{AOA_URL}/intent",
+            data=intent_payload,
             headers={"Content-Type": "application/json"},
             method="POST"
         )
@@ -194,8 +230,8 @@ def main():
     context = format_context(files, keywords)
 
     if context:
-        # Log prediction for hit/miss tracking
-        log_prediction(session_id, files, keywords)
+        # Log prediction for hit/miss tracking and intent display
+        log_prediction(session_id, PROJECT_ID, files, keywords)
 
         # Output structured JSON for Claude Code
         output = {

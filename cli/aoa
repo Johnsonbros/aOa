@@ -1321,19 +1321,23 @@ cmd_intent_recent() {
     echo ""
     echo -e "${DIM}─────────────────────────────────────────────────────────────────────────────────────────────${NC}"
     echo ""
-    echo -e "ACTION       SOURCE    ⚡ aOa IMPACT                              TAGS                                   TARGET"
+    echo -e "ACTION     SOURCE   ATTRIB       ⚡ aOa IMPACT               TAGS                                                    TARGET"
 
     # Process records - extract file_size (baseline) and output_size (actual)
+    # Skip records with no files (noise) - require at least one real file
     echo "$result" | jq -r --arg project_root "$(get_project_root)" '.records[] |
+        select(.files | length > 0) |
+        select(.files[0] != null and .files[0] != "") |
         {
             tool: .tool,
             files: (.files[0] // "unknown"),
-            tags: (.tags[0:3] | join(" ")),
+            file_count: (.files | length),
+            tags: (.tags[0:6] | join(" ")),
             file_size: (if (.file_sizes and .files[0]) then .file_sizes[.files[0]] else null end),
             output_size: .output_size
         } |
-        "\(.tool)|\(.files)|\(.tags)|\(.file_size // 0)|\(.output_size // 0)"
-    ' 2>/dev/null | while IFS='|' read -r tool file tags file_size output_size; do
+        "\(.tool)|\(.files)|\(.tags)|\(.file_size // 0)|\(.output_size // 0)|\(.file_count)"
+    ' 2>/dev/null | while IFS='|' read -r tool file tags file_size output_size file_count; do
         # Map tool to action and determine source
         local action="$tool"
         local source="Claude"
@@ -1366,6 +1370,9 @@ cmd_intent_recent() {
                 ;;
             HaikuTag|Intent)
                 action="Intent"
+                source="aOa"
+                ;;
+            Predict)
                 source="aOa"
                 ;;
         esac
@@ -1460,18 +1467,55 @@ cmd_intent_recent() {
         # Format file path (project-relative)
         local target=$(echo "$file" | sed "s|$(get_project_root)/||" 2>/dev/null || echo "$file")
 
-        # Calculate percentage reduction
-        local impact
-        if [ "$saved" = "-" ]; then
-            impact="${DIM}no savings${NC}"
+        # Calculate attribution and impact
+        local impact attribution
+
+        # Special handling for aOa native operations - tell meaningful stories
+        if [ "$action" = "Predict" ]; then
+            # Extract confidence from tags (format: @XX%)
+            local confidence=$(echo "$tags" | grep -oE '@[0-9]+%' | head -1 | tr -d '@')
+            if [ -n "$confidence" ]; then
+                attribution="${CYAN}${confidence}${NC} conf"
+                # Remove confidence from tags to avoid duplication
+                tags=$(echo "$tags" | sed 's/@[0-9]*%//' | sed 's/  / /g' | xargs)
+            else
+                attribution="${CYAN}predicted${NC}"
+            fi
+            # Show predicted file count
+            if [ "$file_count" -gt 1 ] 2>/dev/null; then
+                impact="${CYAN}${file_count} files${NC} suggested"
+            else
+                impact="${CYAN}1 file${NC} suggested"
+            fi
+        elif [ "$action" = "Intent" ]; then
+            # Haiku semantic tagging
+            attribution="${CYAN}semantic${NC}"
+            local tag_count=$(echo "$tags" | wc -w)
+            impact="${CYAN}${tag_count} tags${NC} generated"
+        elif [ "$action" = "Outline" ]; then
+            # Symbol-level enrichment
+            attribution="${CYAN}symbols${NC}"
+            impact="${CYAN}enriched${NC}"
+        # Determine attribution based on source and savings
+        # aOa brand color is CYAN (consistent with status line)
+        elif [ "$source" = "aOa" ]; then
+            attribution="${CYAN}${BOLD}aOa${NC}"
+        else
+            attribution="-"  # Default, may be upgraded to "aOa guided" below
+        fi
+
+        if [ "$action" = "Predict" ] || [ "$action" = "Intent" ] || [ "$action" = "Outline" ]; then
+            : # Impact already set above for aOa native operations
+        elif [ "$saved" = "-" ]; then
+            impact="-"
         elif [ "$saved" = "SLOW" ]; then
             # Glob/Grep warning - suggest aoa search
-            impact="${YELLOW}⚠️ ${time_saved}${NC} ${DIM}(use 'aoa search' for <5ms)${NC}"
+            impact="${YELLOW}⚠️ ${time_saved}${NC} ${DIM}(use 'aoa search')${NC}"
         elif [ "$saved" = "AI" ]; then
             if [ "$action" = "Outline" ]; then
-                impact="${CYAN}${BOLD}AI-generated${NC} symbol tags"
+                impact="${CYAN}symbol tags${NC}"
             else
-                impact="${CYAN}${BOLD}AI-generated${NC} semantic tags"
+                impact="${CYAN}semantic tags${NC}"
             fi
         else
             # Check if we have REAL savings data (both baseline AND actual output)
@@ -1481,33 +1525,63 @@ cmd_intent_recent() {
                 local saved_tokens=$((base_tokens - actual_tokens))
                 if [ $saved_tokens -gt 0 ]; then
                     local pct=$((saved_tokens * 100 / base_tokens))
-                    impact="${GREEN}${pct}%${NC} reduction (${base} → ${actual}) ${DIM}[measured]${NC}"
+                    # aOa-enabled: significant reduction means aOa guided Claude to read only what it needed
+                    if [ $pct -ge 50 ]; then
+                        # High savings = aOa guided (this is the value prop!)
+                        # CYAN "aOa" (brand color) + GREEN "guided"
+                        attribution="${CYAN}${BOLD}aOa${NC} ${GREEN}guided${NC}"
+                        impact="${GREEN}${BOLD}↓${pct}%${NC} (${base} → ${actual})"
+                    else
+                        # Modest savings
+                        impact="${GREEN}${pct}%${NC} (${base} → ${actual})"
+                    fi
                 else
-                    impact="${DIM}no savings${NC} (${base} → ${actual})"
+                    # Full file read - standard Claude operation
+                    impact="-"
                 fi
-            elif [ "$base_tokens" -gt 0 ]; then
-                # Have baseline but no actual output yet
-                impact="${DIM}baseline: ${base}${NC} ${DIM}(output not captured)${NC}"
             else
-                impact="${DIM}no baseline${NC}"
+                # No measurement data - standard operation
+                impact="-"
             fi
         fi
 
-        # Truncate tags to 40 chars (reduced for SOURCE column)
-        if [ ${#tags} -gt 40 ]; then
-            tags="${tags:0:37}..."
+        # Truncate tags to 55 chars (room for 5-6 tags typically)
+        if [ ${#tags} -gt 55 ]; then
+            tags="${tags:0:52}..."
+        fi
+
+        # Color the source if it's aOa (brand consistency)
+        local source_display
+        if [ "$source" = "aOa" ]; then
+            source_display="${CYAN}${BOLD}aOa${NC}"
+        else
+            source_display="$source"
         fi
 
         # Manual padding for color code compatibility
-        # Strip ANSI codes to get visible length
+        # Strip ANSI codes to get visible length for source
+        local source_visible=$(echo -e "$source_display" | sed 's/\x1b\[[0-9;]*m//g')
+        local source_len=${#source_visible}
+        local source_pad=$((8 - source_len))
+
+        # Strip ANSI codes to get visible length for attribution
+        local attrib_visible=$(echo -e "$attribution" | sed 's/\x1b\[[0-9;]*m//g')
+        local attrib_len=${#attrib_visible}
+        local attrib_pad=$((12 - attrib_len))
+
+        # Strip ANSI codes for impact
         local impact_visible=$(echo -e "$impact" | sed 's/\x1b\[[0-9;]*m//g')
         local impact_len=${#impact_visible}
-        local pad_len=$((40 - impact_len))
+        local impact_pad=$((25 - impact_len))
 
-        printf "%-12s %-9s " "$action" "$source"
-        echo -ne "$impact"
-        [ $pad_len -gt 0 ] && printf "%${pad_len}s" ""
-        printf " %-40s %s\n" "$tags" "$target"
+        printf "%-10s " "$action"
+        echo -ne "$source_display"
+        [ $source_pad -gt 0 ] && printf "%${source_pad}s" ""
+        echo -ne " $attribution"
+        [ $attrib_pad -gt 0 ] && printf "%${attrib_pad}s" ""
+        echo -ne " $impact"
+        [ $impact_pad -gt 0 ] && printf "%${impact_pad}s" ""
+        printf " %-55s %s\n" "$tags" "$target"
     done
 
     echo ""
