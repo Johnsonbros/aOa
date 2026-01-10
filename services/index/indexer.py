@@ -573,8 +573,9 @@ class CodebaseIndex:
                 change_type=change_type
             ))
 
-    def search(self, query: str, mode: str = 'recent', limit: int = 20) -> List[dict]:
-        """Search for a term with filename boosting."""
+    def search(self, query: str, mode: str = 'recent', limit: int = 20,
+               since: int = None, before: int = None) -> List[dict]:
+        """Search for a term with filename boosting and optional time filtering."""
         results = []
 
         with self.lock:
@@ -583,6 +584,17 @@ class CodebaseIndex:
             lower = query.lower()
             if lower != query and lower in self.inverted_index:
                 results.extend(self.inverted_index[lower])
+
+        # Time filtering
+        if since is not None or before is not None:
+            filtered = []
+            for loc in results:
+                if since is not None and loc.mtime < since:
+                    continue
+                if before is not None and loc.mtime > before:
+                    continue
+                filtered.append(loc)
+            results = filtered
 
         # Deduplicate by (file, line)
         seen = set()
@@ -621,11 +633,12 @@ class CodebaseIndex:
 
         return [asdict(loc) for loc in unique[:limit]]
 
-    def search_multi(self, terms: List[str], mode: str = 'recent', limit: int = 20) -> List[dict]:
+    def search_multi(self, terms: List[str], mode: str = 'recent', limit: int = 20,
+                     since: int = None, before: int = None) -> List[dict]:
         """Search for multiple terms, rank by density."""
         all_results = []
         for term in terms:
-            all_results.extend(self.search(term, mode, limit * 2))
+            all_results.extend(self.search(term, mode, limit * 2, since=since, before=before))
 
         file_scores: Dict[str, Tuple[int, int]] = {}
         for loc in all_results:
@@ -1170,6 +1183,19 @@ def symbol_search():
         mode = request.args.get('mode', 'recent')
         limit = int(request.args.get('limit', 20))
         project = request.args.get('project')  # Optional project ID
+        since = request.args.get('since')  # Unix timestamp or seconds ago
+        before = request.args.get('before')  # Unix timestamp or seconds ago
+
+        # Convert time params to absolute timestamps
+        now = int(time.time())
+        since_ts = None
+        before_ts = None
+        if since:
+            since_val = int(since)
+            since_ts = since_val if since_val > 1000000000 else now - since_val
+        if before:
+            before_val = int(before)
+            before_ts = before_val if before_val > 1000000000 else now - before_val
 
         idx = manager.get_local(project)
         if not idx:
@@ -1180,7 +1206,7 @@ def symbol_search():
                 'ms': 0
             }), 404
 
-        results = idx.search(q, mode, limit)
+        results = idx.search(q, mode, limit, since=since_ts, before=before_ts)
 
         return jsonify({
             'results': results,
@@ -1207,18 +1233,33 @@ def multi_search():
         mode = request.args.get('mode', 'recent')
         limit = int(request.args.get('limit', 20))
         project = request.args.get('project')
+        since = request.args.get('since')
+        before = request.args.get('before')
     else:
         data = request.json
         terms = data.get('terms', [])
         mode = data.get('mode', 'recent')
         limit = int(data.get('limit', 20))
         project = data.get('project')
+        since = data.get('since')
+        before = data.get('before')
+
+    # Convert time params to absolute timestamps
+    now = int(time.time())
+    since_ts = None
+    before_ts = None
+    if since:
+        since_val = int(since)
+        since_ts = since_val if since_val > 1000000000 else now - since_val
+    if before:
+        before_val = int(before)
+        before_ts = before_val if before_val > 1000000000 else now - before_val
 
     idx = manager.get_local(project)
     if not idx:
         return jsonify({'error': 'No index available', 'results': [], 'ms': 0}), 404
 
-    results = idx.search_multi(terms, mode, limit)
+    results = idx.search_multi(terms, mode, limit, since=since_ts, before=before_ts)
 
     return jsonify({
         'results': results,
