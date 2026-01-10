@@ -45,8 +45,10 @@ ROUTES = {
     # Index service routes
     "/health": ("index", "/health"),
     "/symbol": ("index", "/symbol"),
-    "/search": ("index", "/symbol"),  # alias
+    "/grep": ("index", "/symbol"),    # Unix parity alias
+    "/search": ("index", "/symbol"),  # deprecated alias
     "/multi": ("index", "/multi"),
+    "/egrep": ("index", "/pattern"),  # Unix parity alias
     "/files": ("index", "/files"),
     "/changes": ("index", "/changes"),
     "/file": ("index", "/file"),

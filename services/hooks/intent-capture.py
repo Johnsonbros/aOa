@@ -97,14 +97,26 @@ def extract_files(data: dict) -> list:
     if 'command' in data.get('tool_input', {}):
         cmd = data['tool_input']['command']
 
-        # Detect aOa commands (search, multi, pattern, outline)
+        # Detect aOa commands (grep, egrep, find, tree, locate, etc.)
         # Match 'aoa cmd' anywhere - handles bare command or full path
-        aoa_match = re.search(r'\baoa\s+(search|multi|pattern|outline)\s+(.+?)(?:\s*$|\s*\||\s*&&|\s*;)', cmd)
-        if aoa_match:
-            aoa_cmd = aoa_match.group(1)  # search, multi, pattern, or outline
-            aoa_term = aoa_match.group(2).strip().strip('"\'')[:50]  # Limit term length
-            # Escape colons in term to preserve our delimiter format
-            aoa_term_safe = aoa_term.replace(':', '\\:')
+        # Primary: grep, egrep, find, tree, locate, head, tail, lines, hot, touched, focus, predict, outline
+        # Deprecated: search, multi, pattern (aliased to grep/egrep)
+        # Use findall to get ALL matches, then take the LAST one (skip echo text)
+        aoa_matches = re.findall(r'\baoa\s+(grep|egrep|find|tree|locate|head|tail|lines|hot|touched|focus|predict|outline|search|multi|pattern)(?:\s+(-[a-z]))?(?:\s+(.+?))?(?:\s*$|\s*\||\s*&&|\s*;|\s*2>)', cmd)
+        if aoa_matches:
+            # Take the last match (real command, not echo text)
+            match = aoa_matches[-1]
+            aoa_cmd = match[0]  # grep, egrep, find, etc.
+            aoa_flag = match[1] if match[1] else ""  # -a, -i, etc.
+            aoa_term = (match[2] or "").strip().strip('"\'')[:40]  # Limit term length
+            # Build full command display: "aoa grep -a term"
+            full_cmd = f"aoa {aoa_cmd}"
+            if aoa_flag:
+                full_cmd += f" {aoa_flag}"
+            if aoa_term:
+                full_cmd += f" {aoa_term}"
+            # Escape colons in full command to preserve our delimiter format
+            full_cmd_safe = full_cmd.replace(':', '\\:')
 
             # Try to extract hit count from tool_response
             response = data.get('tool_response', '')
@@ -129,7 +141,23 @@ def extract_files(data: dict) -> list:
                         hits = pattern_match.group(1)
                         time_ms = pattern_match.group(2)
 
-            files.add(f"cmd:aoa:{aoa_cmd}:{aoa_term_safe}:{hits}:{time_ms}")
+            files.add(f"cmd:aoa:{aoa_cmd}:{full_cmd_safe}:{hits}:{time_ms}")
+
+            # Extract result files from aOa output and associate with search intent
+            # This creates meaningful file clusters for prediction
+            if isinstance(response, str) and int(hits) > 0:
+                # Parse file:line format from aOa output (e.g., "  services/index/indexer.py:123")
+                result_files = re.findall(r'^\s+([\w\-_./]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|sh|sql)):\d+', response_clean, re.MULTILINE)
+                # Deduplicate and limit to avoid flooding
+                unique_results = list(dict.fromkeys(result_files))[:20]
+                for result_file in unique_results:
+                    files.add(result_file)
+                # Add search term as a tag for these files (creates intent cluster)
+                if aoa_term and unique_results:
+                    # Clean term for use as tag
+                    search_tag = re.sub(r'[^a-zA-Z0-9_-]', '', aoa_term.split()[0] if ' ' in aoa_term else aoa_term)[:20]
+                    if search_tag:
+                        tags.add(f"#{search_tag}")
 
         # Match file paths in command - require at least one directory component
         # and extension must be at word boundary (not .claude matching .c)

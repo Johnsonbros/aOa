@@ -1,6 +1,6 @@
 # aOa - 5 Angles. 1 Attack.
 
-**CRITICAL: This project has aOa installed. ALWAYS use `aoa search` instead of Grep/Glob.**
+**CRITICAL: This project has aOa installed. ALWAYS use `aoa grep` instead of Grep/Glob.**
 
 ---
 
@@ -51,8 +51,8 @@ When the user addresses an agent by name using "Hey [AgentName]", spawn that age
 
 | Use This | Instead Of | Why |
 |----------|------------|-----|
-| `aoa-scout` | Explore (quick) | Uses `aoa search`, 10-50x faster |
-| `aoa-explore` | Explore (thorough) | Uses `aoa search`, saves tokens |
+| `aoa-scout` | Explore (quick) | Uses `aoa grep`, 10-50x faster |
+| `aoa-explore` | Explore (thorough) | Uses `aoa grep`, saves tokens |
 
 **Built-in Explore agents don't use aOa** - they fall back to slow Grep/Glob.
 
@@ -87,14 +87,14 @@ Read(file3.py)                      # 4 calls
 **ALWAYS do this:**
 ```bash
 # RIGHT - One call, fast, efficient
-aoa search auth
+aoa grep auth
 # Returns: file:line for ALL matches in <5ms
 # Then read ONLY the specific lines you need
 ```
 
 ## Rule #2: aOa Returns File:Line - Use It
 
-aOa search output:
+aOa grep output:
 ```
 ⚡ 20 hits │ 4.73ms
   index/indexer.py:1308
@@ -118,34 +118,34 @@ Grep("session") # call 3
 
 **RIGHT:**
 ```bash
-aoa search "auth login session"  # ONE call, ranked results
+aoa grep "auth login session"  # ONE call, ranked results
 ```
 
 ## Rule #4: Three Search Modes
 
 **Symbol Lookup (O(1) - instant, full index):**
 ```bash
-aoa search tree_sitter                  # exact symbol
-aoa search "auth session token"         # multi-term OR search, ranked
+aoa grep tree_sitter                  # exact symbol
+aoa grep "auth session token"         # multi-term OR search, ranked
 ```
 **Note:** Space-separated terms are OR search, not phrase search.
 
 **Multi-Term Intersection (full index):**
 ```bash
-aoa multi auth,session,token            # files containing ALL terms (AND)
+aoa grep -a auth,session,token        # files containing ALL terms (AND)
 ```
 
 **Pattern Search (regex - working set only ~30-50 files):**
 ```bash
-aoa pattern '{"match": "tree.sitter"}'       # regex
-aoa pattern '{"func": "def\\s+handle\\w+"}'  # find patterns
+aoa egrep "tree.sitter"               # regex
+aoa egrep "def\\s+handle\\w+"         # find patterns
 ```
 **Warning:** Pattern search only scans local/recent files, not full codebase.
 
 **When to use which:**
-- `aoa search` → Know the symbol, need speed, OR logic
-- `aoa multi` → Need files matching ALL terms (AND logic)
-- `aoa pattern` → Need regex matching (working set only)
+- `aoa grep` → Know the symbol, need speed, OR logic
+- `aoa grep -a` → Need files matching ALL terms (AND logic)
+- `aoa egrep` → Need regex matching (working set only)
 
 **Tokenization:** Hyphens and dots break tokens (`app.post` → `app`, `post`).
 
@@ -153,9 +153,14 @@ aoa pattern '{"func": "def\\s+handle\\w+"}'  # find patterns
 
 | Command | Use For | Speed |
 |---------|---------|-------|
-| `aoa search <term>` | Symbol lookup | <5ms |
-| `aoa search "term1 term2"` | Multi-term ranked | <10ms |
-| `aoa pattern '{"k":"regex"}'` | Regex search | ~20ms |
+| `aoa grep <term>` | Symbol lookup | <5ms |
+| `aoa grep "term1 term2"` | Multi-term OR search | <10ms |
+| `aoa grep -a t1,t2` | Multi-term AND search | <10ms |
+| `aoa egrep "regex"` | Regex search | ~20ms |
+| `aoa find "*.py"` | File discovery | <10ms |
+| `aoa locate name` | Fast filename search | <5ms |
+| `aoa tree [dir]` | Directory structure | <50ms |
+| `aoa hot` | Frequently accessed files | <10ms |
 | `aoa health` | Check services | instant |
 | `aoa intent recent` | See what's being worked on | <50ms |
 
@@ -175,15 +180,17 @@ curl "localhost:8080/intent/recent"                  # Recent intents
 | Approach | Tool Calls | Tokens | Time |
 |----------|------------|--------|------|
 | Grep + Read loops | 7 | 8,500 | 2.6s |
-| aOa search | 1-2 | 1,150 | 54ms |
+| aOa grep | 1-2 | 1,150 | 54ms |
 | **Savings** | **71%** | **86%** | **98%** |
 
 ## Decision Tree
 
-1. **Need to find code?** → `aoa search <term>` (NOT Grep)
-2. **Need multiple terms?** → `aoa search "term1 term2"` (NOT multiple Greps)
-3. **Need file content?** → Read specific lines from aOa results (NOT entire files)
-4. **Need to understand patterns?** → `aoa intent recent`
+1. **Need to find code?** → `aoa grep <term>` (NOT Grep)
+2. **Need multiple terms?** → `aoa grep "term1 term2"` (NOT multiple Greps)
+3. **Need files by pattern?** → `aoa find "*.py"` or `aoa locate name`
+4. **Need file content?** → Read specific lines from aOa results (NOT entire files)
+5. **Need regex matching?** → `aoa egrep "pattern"`
+6. **Need to understand patterns?** → `aoa intent recent`
 
 ## Intent Tracking
 

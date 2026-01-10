@@ -493,18 +493,70 @@ cmd_projects() {
 # Local Index Commands (default)
 # =============================================================================
 
-cmd_search() {
-    local query="$1"
-    local mode="${2:-recent}"
-    local limit="${3:-20}"
+cmd_grep() {
+    # aoa grep <term>           - Symbol search (O(1) indexed)
+    # aoa grep "a b c"          - Multi-term OR search, ranked
+    # aoa grep -a term1,term2   - Multi-term AND (all terms required)
+    # aoa grep -i <term>        - Case insensitive (future)
+    # aoa grep -w <term>        - Word boundary (future)
+    local and_mode=false
+    local case_insensitive=false
+    local word_boundary=false
+    local query=""
+    local mode="recent"
+    local limit="20"
+
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -a|--and)
+                and_mode=true
+                shift
+                ;;
+            -i|--ignore-case)
+                case_insensitive=true
+                shift
+                ;;
+            -w|--word)
+                word_boundary=true
+                shift
+                ;;
+            -l|--limit)
+                limit="$2"
+                shift 2
+                ;;
+            -m|--mode)
+                mode="$2"
+                shift 2
+                ;;
+            -*)
+                echo "Unknown flag: $1"
+                return 1
+                ;;
+            *)
+                if [ -z "$query" ]; then
+                    query="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
 
     if [ -z "$query" ]; then
-        echo "Usage: aoa search <term> [mode] [limit]"
+        echo "Usage: aoa grep <term> [options]"
+        echo ""
+        echo "Options:"
+        echo "  -a, --and        AND mode: all comma-separated terms required"
+        echo "  -i, --ignore-case  Case insensitive search"
+        echo "  -w, --word       Word boundary match"
+        echo "  -l, --limit N    Limit results (default: 20)"
+        echo ""
+        echo "Examples:"
+        echo "  aoa grep handleAuth          # Symbol search"
+        echo "  aoa grep \"auth token\"        # OR search (either term)"
+        echo "  aoa grep -a auth,session     # AND search (all terms)"
         return 1
     fi
-
-    # URL-encode the query (handles #, spaces, etc.)
-    local encoded_query=$(printf '%s' "$query" | jq -sRr @uri)
 
     # Get current project context
     local project_id=$(get_project_id)
@@ -513,55 +565,62 @@ cmd_search() {
         project_param="&project=${project_id}"
     fi
 
-    local result=$(curl -s "${INDEX_URL}/symbol?q=${encoded_query}&mode=${mode}&limit=${limit}${project_param}")
-    local ms=$(echo "$result" | jq -r '.ms // 0')
-    local count=$(echo "$result" | jq -r '.results | length')
+    local result
+    local ms
+    local count
 
-    # Single punchy line: ⚡ 7 hits │ 0.12ms
-    printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
+    if [ "$and_mode" = true ]; then
+        # AND mode: use /multi endpoint
+        local json_terms=$(echo "$query" | tr ',' '\n' | jq -R . | jq -s .)
 
-    # Results - show symbol metadata when available (for semantic compression tags)
-    echo "$result" | jq -r '.results[] |
-      if .symbol then
-        "  \(.file):\(.line) \(.symbol_kind // ""):\(.symbol) [\(.line)-\(.end_line // .line)]"
-      else
-        "  \(.file):\(.line)"
-      end' 2>/dev/null
+        local body="{\"terms\": ${json_terms}, \"mode\": \"${mode}\", \"limit\": ${limit}"
+        if [ -n "$project_id" ]; then
+            body="${body}, \"project\": \"${project_id}\""
+        fi
+        body="${body}}"
+
+        result=$(curl -s -X POST "${INDEX_URL}/multi" \
+            -H "Content-Type: application/json" \
+            -d "$body")
+
+        ms=$(echo "$result" | jq -r '.ms // 0')
+        count=$(echo "$result" | jq -r '.results | length')
+
+        printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
+        echo "$result" | jq -r '.results[] | "  \(.file):\(.line)"' 2>/dev/null
+    else
+        # Default: symbol search with /symbol endpoint
+        local encoded_query=$(printf '%s' "$query" | jq -sRr @uri)
+
+        # Build query params
+        local params="q=${encoded_query}&mode=${mode}&limit=${limit}${project_param}"
+        [ "$case_insensitive" = true ] && params="${params}&ci=1"
+        [ "$word_boundary" = true ] && params="${params}&word=1"
+
+        result=$(curl -s "${INDEX_URL}/symbol?${params}")
+        ms=$(echo "$result" | jq -r '.ms // 0')
+        count=$(echo "$result" | jq -r '.results | length')
+
+        printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
+
+        # Results - show symbol metadata when available
+        echo "$result" | jq -r '.results[] |
+          if .symbol then
+            "  \(.file):\(.line) \(.symbol_kind // ""):\(.symbol) [\(.line)-\(.end_line // .line)]"
+          else
+            "  \(.file):\(.line)"
+          end' 2>/dev/null
+    fi
 }
 
+# Deprecated: use cmd_grep instead
+cmd_search() {
+    cmd_grep "$@"
+}
+
+# Deprecated: use cmd_grep -a instead
 cmd_multi() {
-    local terms="$1"
-    local mode="${2:-recent}"
-    local limit="${3:-20}"
-
-    if [ -z "$terms" ]; then
-        echo "Usage: aoa multi <term1,term2,...> [mode] [limit]"
-        return 1
-    fi
-
-    # Get current project context
-    local project_id=$(get_project_id)
-
-    # Convert to JSON array
-    local json_terms=$(echo "$terms" | tr ',' '\n' | jq -R . | jq -s .)
-
-    local body="{\"terms\": ${json_terms}, \"mode\": \"${mode}\", \"limit\": ${limit}"
-    if [ -n "$project_id" ]; then
-        body="${body}, \"project\": \"${project_id}\""
-    fi
-    body="${body}}"
-
-    local result=$(curl -s -X POST "${INDEX_URL}/multi" \
-        -H "Content-Type: application/json" \
-        -d "$body")
-
-    local ms=$(echo "$result" | jq -r '.ms // 0')
-    local count=$(echo "$result" | jq -r '.results | length')
-
-    # Single punchy line
-    printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
-
-    echo "$result" | jq -r '.results[] | "  \(.file):\(.line)"' 2>/dev/null
+    cmd_grep -a "$@"
 }
 
 cmd_changes() {
@@ -610,6 +669,362 @@ cmd_files() {
     [ -n "$pattern" ] && url="${url}&match=${pattern}"
 
     curl -s "$url" | jq -r '.results[] | "\(.path) (\(.language))"'
+}
+
+# =============================================================================
+# File Discovery Commands (Unix parity)
+# =============================================================================
+
+cmd_find() {
+    # aoa find <pattern>         - Find files by glob pattern
+    # aoa find -type py          - Find files by language
+    # aoa find "*.py" --recent   - Recently modified Python files
+    local pattern=""
+    local lang=""
+    local mode="recent"
+    local limit="50"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -type|-t)
+                lang="$2"
+                shift 2
+                ;;
+            --recent|-r)
+                mode="recent"
+                shift
+                ;;
+            --alpha|-a)
+                mode="alpha"
+                shift
+                ;;
+            -l|--limit)
+                limit="$2"
+                shift 2
+                ;;
+            -*)
+                echo "Unknown flag: $1"
+                return 1
+                ;;
+            *)
+                pattern="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$pattern" ] && [ -z "$lang" ]; then
+        echo "Usage: aoa find <pattern> [options]"
+        echo ""
+        echo "Options:"
+        echo "  -type, -t <lang>   Filter by language (py, js, ts, go, etc.)"
+        echo "  --recent, -r       Sort by modification time (default)"
+        echo "  --alpha, -a        Sort alphabetically"
+        echo "  -l, --limit N      Limit results (default: 50)"
+        echo ""
+        echo "Examples:"
+        echo "  aoa find '*.py'          # All Python files"
+        echo "  aoa find -type py        # Same, by language"
+        echo "  aoa find 'test*.py'      # Test files"
+        echo "  aoa find 'src/**/*.ts'   # TypeScript in src/"
+        return 1
+    fi
+
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local url="${INDEX_URL}/files?mode=${mode}&limit=${limit}${project_param}"
+    [ -n "$pattern" ] && url="${url}&match=${pattern}"
+    [ -n "$lang" ] && url="${url}&lang=${lang}"
+
+    local result=$(curl -s "$url")
+    local count=$(echo "$result" | jq -r '.results | length')
+
+    printf "${CYAN}${BOLD}📁 %s files${NC}\n" "$count"
+    echo "$result" | jq -r '.results[] | "  \(.path)"'
+}
+
+cmd_tree() {
+    # aoa tree [dir]     - Show directory structure
+    local dir="${1:-.}"
+    local depth="${2:-3}"
+
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    # Use /files endpoint and build tree structure
+    local result=$(curl -s "${INDEX_URL}/files?mode=alpha&limit=500${project_param}")
+
+    # Filter to directory if specified
+    if [ "$dir" != "." ]; then
+        result=$(echo "$result" | jq --arg dir "$dir" '.results |= map(select(.path | startswith($dir)))')
+    fi
+
+    local count=$(echo "$result" | jq -r '.results | length')
+    local dirs=$(echo "$result" | jq -r '[.results[].path | split("/")[:-1] | join("/")] | unique | length')
+
+    printf "${CYAN}${BOLD}🌳 %s dirs, %s files${NC}\n" "$dirs" "$count"
+    echo ""
+
+    # Simple tree-like output
+    echo "$result" | jq -r '.results[].path' | while read -r path; do
+        local indent=$(echo "$path" | tr -cd '/' | wc -c)
+        local name=$(basename "$path")
+        printf "%*s%s\n" $((indent * 2)) "" "$name"
+    done | head -50
+}
+
+cmd_locate() {
+    # aoa locate <name>   - Fast filename search (uses symbol index)
+    local name="$1"
+
+    if [ -z "$name" ]; then
+        echo "Usage: aoa locate <filename>"
+        echo ""
+        echo "Examples:"
+        echo "  aoa locate routes       # Find files with 'routes' in name"
+        echo "  aoa locate config.py    # Find config.py files"
+        return 1
+    fi
+
+    # Search in filenames using /files endpoint
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/files?match=*${name}*&limit=20${project_param}")
+    local count=$(echo "$result" | jq -r '.results | length')
+
+    printf "${CYAN}${BOLD}🔍 %s matches${NC}\n" "$count"
+    echo "$result" | jq -r '.results[] | "  \(.path)"'
+}
+
+cmd_head() {
+    # aoa head <file> [n]   - Show first n lines (default: 20)
+    local file="$1"
+    local lines="${2:-20}"
+
+    if [ -z "$file" ]; then
+        echo "Usage: aoa head <file> [lines]"
+        echo ""
+        echo "Examples:"
+        echo "  aoa head cli/aoa        # First 20 lines"
+        echo "  aoa head cli/aoa 50     # First 50 lines"
+        return 1
+    fi
+
+    # Use /file endpoint with line range
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/file?path=${file}&lines=1-${lines}${project_param}")
+
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        return 1
+    fi
+
+    printf "${DIM}%s (lines 1-%s)${NC}\n" "$file" "$lines"
+    echo "$result" | jq -r '.content // .lines[]'
+}
+
+cmd_tail() {
+    # aoa tail <file> [n]   - Show last n lines (default: 20)
+    local file="$1"
+    local lines="${2:-20}"
+
+    if [ -z "$file" ]; then
+        echo "Usage: aoa tail <file> [lines]"
+        echo ""
+        echo "Examples:"
+        echo "  aoa tail cli/aoa        # Last 20 lines"
+        echo "  aoa tail cli/aoa 50     # Last 50 lines"
+        return 1
+    fi
+
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/file?path=${file}&lines=-${lines}${project_param}")
+
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        return 1
+    fi
+
+    printf "${DIM}%s (last %s lines)${NC}\n" "$file" "$lines"
+    echo "$result" | jq -r '.content // .lines[]'
+}
+
+cmd_lines() {
+    # aoa lines <file> <range>   - Show specific line range
+    local file="$1"
+    local range="$2"
+
+    if [ -z "$file" ] || [ -z "$range" ]; then
+        echo "Usage: aoa lines <file> <start-end>"
+        echo ""
+        echo "Examples:"
+        echo "  aoa lines cli/aoa 100-150   # Lines 100-150"
+        echo "  aoa lines cli/aoa 500-550   # Lines 500-550"
+        return 1
+    fi
+
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/file?path=${file}&lines=${range}${project_param}")
+
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        return 1
+    fi
+
+    printf "${DIM}%s (lines %s)${NC}\n" "$file" "$range"
+    echo "$result" | jq -r '.content // .lines[]'
+}
+
+# =============================================================================
+# Behavioral Commands (aOa unique - no Unix equivalent)
+# =============================================================================
+
+cmd_hot() {
+    # aoa hot [limit]     - Show frequently accessed "hot" files
+    local limit="${1:-10}"
+
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/predict?limit=${limit}${project_param}")
+    local count=$(echo "$result" | jq -r '.predictions | length // 0' 2>/dev/null || echo "0")
+
+    printf "${CYAN}${BOLD}🔥 %s hot files${NC}\n" "$count"
+
+    if [ "$count" -gt 0 ] 2>/dev/null; then
+        echo "$result" | jq -r '.predictions[] | "  \(.file) (\(.score | . * 100 | floor)%)"' 2>/dev/null || true
+    fi
+    return 0
+}
+
+cmd_touched() {
+    # aoa touched [since]   - Files touched in current session or time period
+    local since="${1:-session}"
+
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    # Parse time string
+    local since_param="since=session"
+    if [[ "$since" =~ ^([0-9]+)([smhd])$ ]]; then
+        local num="${BASH_REMATCH[1]}"
+        local unit="${BASH_REMATCH[2]}"
+        local seconds
+        case "$unit" in
+            s) seconds=$num ;;
+            m) seconds=$((num * 60)) ;;
+            h) seconds=$((num * 3600)) ;;
+            d) seconds=$((num * 86400)) ;;
+        esac
+        since_param="since=${seconds}"
+    elif [ "$since" = "session" ]; then
+        since_param="since=session"
+    elif [ "$since" = "today" ]; then
+        since_param="since=86400"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/intent/recent?${since_param}&limit=100${project_param}")
+
+    # Extract unique files from intent records
+    local files=$(echo "$result" | jq -r '[.intents[]?.files[]?] | unique | .[]' 2>/dev/null || true)
+    local count=0
+    if [ -n "$files" ]; then
+        count=$(echo "$files" | wc -l | tr -d ' ')
+    fi
+
+    printf "${CYAN}${BOLD}✋ %s files touched${NC}\n" "$count"
+    if [ -n "$files" ]; then
+        echo "$files" | while read -r file; do
+            [ -n "$file" ] && echo "  $file"
+        done
+    fi
+    return 0
+}
+
+cmd_focus() {
+    # aoa focus     - Show current working set from memory
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="?project=${project_id}"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/memory${project_param}")
+    local count=$(echo "$result" | jq -r '.working_set | length // 0' 2>/dev/null || echo "0")
+
+    printf "${CYAN}${BOLD}🎯 %s files in focus${NC}\n" "$count"
+
+    if [ "$count" -gt 0 ] 2>/dev/null; then
+        echo "$result" | jq -r '.working_set[]' 2>/dev/null | while read -r file; do
+            echo "  $file"
+        done
+    fi
+    return 0
+}
+
+cmd_predict() {
+    # aoa predict [file]   - Predict next files based on current context
+    local file="$1"
+
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local url="${INDEX_URL}/transitions/predict?limit=5${project_param}"
+    if [ -n "$file" ]; then
+        url="${url}&file=${file}"
+    fi
+
+    local result=$(curl -s "$url")
+    local count=$(echo "$result" | jq -r '.predictions | length // 0' 2>/dev/null || echo "0")
+
+    if [ -n "$file" ]; then
+        printf "${CYAN}${BOLD}🔮 %s predictions for %s${NC}\n" "$count" "$file"
+    else
+        printf "${CYAN}${BOLD}🔮 %s predictions${NC}\n" "$count"
+    fi
+
+    if [ "$count" -gt 0 ] 2>/dev/null; then
+        echo "$result" | jq -r '.predictions[] | "  \(.file) (\(.confidence | . * 100 | floor)% confidence)"' 2>/dev/null || true
+    fi
+    return 0
 }
 
 cmd_outline() {
@@ -1172,12 +1587,15 @@ cmd_repo_deps() {
 }
 
 # =============================================================================
-# Pattern Search (Agent-driven)
+# Extended Regex Search (egrep)
 # =============================================================================
 
-cmd_pattern() {
-    # Usage: aoa pattern '{"func_def": "def\\s+\\w+"}' [--repo name] [--since 7d]
-    local patterns="$1"
+cmd_egrep() {
+    # aoa egrep "regex"                    - Simple regex search
+    # aoa egrep '{"name": "regex"}'        - Named pattern (legacy JSON format)
+    # aoa egrep "regex" --repo flask       - Search in knowledge repo
+    # aoa egrep "regex" --since 7d         - Filter by time
+    local pattern="$1"
     shift || true
 
     local repo=""
@@ -1191,13 +1609,17 @@ cmd_pattern() {
         esac
     done
 
-    if [ -z "$patterns" ]; then
-        echo "Usage: aoa pattern '<json patterns>' [--repo name] [--since time]"
+    if [ -z "$pattern" ]; then
+        echo "Usage: aoa egrep <regex> [--repo name] [--since time]"
         echo ""
         echo "Examples:"
-        echo '  aoa pattern '\''{"func": "def\\s+\\w+\\("}'\'''
-        echo '  aoa pattern '\''{"class": "class\\s+\\w+"}'\'' --repo flask'
-        echo '  aoa pattern '\''{"error": "except\\s+\\w+"}'\'' --since 7d'
+        echo '  aoa egrep "TODO|FIXME"                # Simple regex'
+        echo '  aoa egrep "def\\s+handle\\w+"         # Function pattern'
+        echo '  aoa egrep "class\\s+\\w+" --since 7d  # With time filter'
+        echo '  aoa egrep "Blueprint" --repo flask    # In knowledge repo'
+        echo ""
+        echo "Note: Searches working set (~30-50 recent files), not full index."
+        echo "      Use 'aoa grep' for full indexed search."
         return 1
     fi
 
@@ -1216,6 +1638,17 @@ cmd_pattern() {
         else
             since_seconds="$since"
         fi
+    fi
+
+    # Handle both simple string and JSON pattern formats
+    local patterns
+    if [[ "$pattern" == "{"* ]]; then
+        # Already JSON format
+        patterns="$pattern"
+    else
+        # Simple string - wrap in JSON with "match" key
+        local escaped=$(printf '%s' "$pattern" | jq -Rs .)
+        patterns="{\"match\": ${escaped}}"
     fi
 
     # Build request body
@@ -1247,6 +1680,11 @@ cmd_pattern() {
 
     # Output results grouped by pattern
     echo "$result" | jq -r '.results | to_entries[] | "\u001b[1m\(.key):\u001b[0m", (.value[] | "  \(.file):\(.line) \u001b[2m\(.context)\u001b[0m"), ""'
+}
+
+# Deprecated: use cmd_egrep instead
+cmd_pattern() {
+    cmd_egrep "$@"
 }
 
 # =============================================================================
@@ -1473,10 +1911,24 @@ PYEOF
                 # Check for aOa commands - format: cmd:aoa:type:term:hits:time
                 # Term may contain escaped colons (\:), so parse carefully
                 if echo "$file" | grep -q "^cmd:aoa:"; then
-                    action="Search"
                     source="aOa"
                     # Extract type (field 3)
                     local aoa_type=$(echo "$file" | cut -d: -f3)
+                    # Map aOa command to display action
+                    case "$aoa_type" in
+                        grep|search|multi)  action="Search" ;;
+                        egrep|pattern)      action="Search" ;;
+                        find)               action="Find" ;;
+                        tree)               action="Tree" ;;
+                        locate)             action="Locate" ;;
+                        head|tail|lines)    action="Read" ;;
+                        hot)                action="Predict" ;;
+                        touched)            action="Intent" ;;
+                        focus)              action="Memory" ;;
+                        predict)            action="Predict" ;;
+                        outline)            action="Outline" ;;
+                        *)                  action="Search" ;;
+                    esac
                     # Extract hits:time from end (last 2 colon-separated fields)
                     local aoa_time=$(echo "$file" | rev | cut -d: -f1 | rev)
                     local aoa_hits=$(echo "$file" | rev | cut -d: -f2 | rev)
@@ -1489,10 +1941,11 @@ PYEOF
                     export AOA_SEARCH_TYPE="$aoa_type"
                     export AOA_SEARCH_HITS="$aoa_hits"
                     export AOA_SEARCH_TIME="$aoa_time"
-                    # Target is just the search term (truncate for display)
-                    local display_term="${aoa_term:0:40}"
-                    [ ${#aoa_term} -gt 40 ] && display_term="${display_term}..."
-                    file="\"${display_term}\""
+                    # Store the full command for display (will be formatted at print time)
+                    local display_term="${aoa_term:0:50}"
+                    [ ${#aoa_term} -gt 50 ] && display_term="${display_term}..."
+                    # Mark as aOa command for special formatting at print time
+                    file="AOA_CMD:${display_term}"
                 # Old format: cmd:aoa search term (space separated)
                 elif echo "$file" | grep -q "^cmd:aoa "; then
                     action="Search"
@@ -1635,12 +2088,21 @@ PYEOF
             # Symbol-level enrichment
             attribution="${CYAN}symbols${NC}"
             impact="${CYAN}enriched${NC}"
-        elif [ "$action" = "Search" ]; then
-            # aOa search operations - show search type as attribution
+        elif [ "$action" = "Search" ] || [ "$action" = "Find" ] || [ "$action" = "Locate" ] || [ "$action" = "Tree" ]; then
+            # aOa search/discovery operations - show command type as attribution
             case "$AOA_SEARCH_TYPE" in
-                pattern) attribution="${CYAN}pattern${NC}" ;;
-                multi)   attribution="${CYAN}multi${NC}" ;;
-                *)       attribution="${CYAN}symbol${NC}" ;;
+                grep|search)  attribution="${CYAN}symbol${NC}" ;;
+                egrep|pattern) attribution="${CYAN}pattern${NC}" ;;
+                multi)        attribution="${CYAN}multi${NC}" ;;
+                find)         attribution="${CYAN}files${NC}" ;;
+                tree)         attribution="${CYAN}structure${NC}" ;;
+                locate)       attribution="${CYAN}filename${NC}" ;;
+                head|tail|lines) attribution="${CYAN}content${NC}" ;;
+                hot)          attribution="${CYAN}frequency${NC}" ;;
+                touched)      attribution="${CYAN}session${NC}" ;;
+                focus)        attribution="${CYAN}context${NC}" ;;
+                predict)      attribution="${CYAN}predicted${NC}" ;;
+                *)            attribution="${CYAN}symbol${NC}" ;;
             esac
             # Truncate time to 2 decimal places
             local time_display=$(printf "%.2f" "$AOA_SEARCH_TIME" 2>/dev/null || echo "$AOA_SEARCH_TIME")
@@ -1658,7 +2120,7 @@ PYEOF
             attribution="-"  # Default, may be upgraded to "aOa guided" below
         fi
 
-        if [ "$action" = "Predict" ] || [ "$action" = "Intent" ] || [ "$action" = "Outline" ] || [ "$action" = "Search" ]; then
+        if [ "$action" = "Predict" ] || [ "$action" = "Intent" ] || [ "$action" = "Outline" ] || [ "$action" = "Search" ] || [ "$action" = "Find" ] || [ "$action" = "Locate" ] || [ "$action" = "Tree" ] || [ "$action" = "Memory" ]; then
             : # Impact already set above for aOa native operations
         elif [ "$saved" = "-" ]; then
             impact="-"
@@ -1737,7 +2199,21 @@ PYEOF
         [ $attrib_pad -gt 0 ] && printf "%${attrib_pad}s" ""
         echo -ne " $impact"
         [ $impact_pad -gt 0 ] && printf "%${impact_pad}s" ""
-        printf " %-55s %s\n" "$tags" "$target"
+        printf " %-55s " "$tags"
+        # Format aOa commands with branding: aOa in CYAN, command in GREEN
+        if [[ "$target" == AOA_CMD:* ]]; then
+            local aoa_display="${target#AOA_CMD:}"
+            # Parse: aoa <cmd> [rest]
+            if [[ "$aoa_display" =~ ^aoa\ +([a-z]+)(\ +.*)? ]]; then
+                local cmd="${BASH_REMATCH[1]}"
+                local rest="${BASH_REMATCH[2]:-}"
+                echo -e "${CYAN}aOa${NC} ${GREEN}${cmd}${NC}${rest}"
+            else
+                echo -e "${CYAN}aOa${NC} ${aoa_display#aoa }"
+            fi
+        else
+            echo "$target"
+        fi
     done
 
     echo ""
@@ -2469,9 +2945,29 @@ GETTING STARTED
   aoa remove             Disable aOa in current project
   aoa projects           List all enabled projects
 
-PROJECT SEARCH
-  search <term>          O(1) symbol lookup (current project)
-  multi <t1,t2,...>      Multi-angle search
+SEARCH (Unix parity)
+  grep <term>            O(1) symbol lookup (indexed, full codebase)
+  grep "a b c"           Multi-term OR search (ranked)
+  grep -a t1,t2          Multi-term AND search (all terms required)
+  grep -i <term>         Case insensitive search
+  egrep <regex>          Extended regex search (working set only)
+
+FILE DISCOVERY (Unix parity)
+  find <pattern>         Find files by glob pattern (e.g., '*.py')
+  find -type py          Find files by language
+  tree [dir]             Directory tree structure
+  locate <name>          Fast filename search
+  head <file> [n]        Show first n lines (default: 20)
+  tail <file> [n]        Show last n lines (default: 20)
+  lines <file> M-N       Show specific line range
+
+BEHAVIORAL (aOa unique)
+  hot [limit]            Frequently accessed "hot" files
+  touched [since]        Files touched in session/time period
+  focus                  Current working set from memory
+  predict [file]         Predict next files based on patterns
+
+TIME-BASED
   changes [time]         Recent file changes (e.g., 5m, 1h)
   files [pattern]        List indexed files
 
@@ -2481,16 +2977,7 @@ OUTLINE ANGLE (code structure + semantic tags)
   outline --enrich-all   Show files needing tags (detailed)
 
   To add semantic tags: In Claude Code, say "tag the codebase"
-  Then search: aoa search "#authentication"
-
-SESSION
-  history [limit]        Recent events
-  reset [session|weekly] Reset counters
-
-SIGNAL ANGLE (pattern matching)
-  pattern '<json>'       Multi-pattern regex search
-    --repo <name>        Search in specific repo
-    --since <time>       Only files modified recently (e.g., 7d)
+  Then search: aoa grep "#authentication"
 
 INTENT ANGLE (behavioral tracking)
   intent recent [since]  Recent intent records (e.g., 1h, 30m)
@@ -2498,6 +2985,10 @@ INTENT ANGLE (behavioral tracking)
   intent files <tag>     Files associated with an intent tag
   intent file <path>     Tags associated with a file
   intent stats           Intent index statistics
+
+SESSION
+  history [limit]        Recent events
+  reset [session|weekly] Reset counters
 
 INTEL ANGLE (external reference)
   repo list              List intel sources
@@ -2518,8 +3009,10 @@ EXAMPLES
   cd ~/my-project && aoa init   # Enable for project
 
   # Search your project
-  aoa search handleAuth
-  aoa multi auth,session,token
+  aoa grep handleAuth           # Symbol search
+  aoa grep "auth token"         # OR search
+  aoa grep -a auth,session      # AND search
+  aoa egrep "TODO|FIXME"        # Regex search
 
   # Add reference repos
   aoa repo add flask https://github.com/pallets/flask
@@ -2530,6 +3023,11 @@ ARCHITECTURE
   .claude/hooks/         Per-project hooks (created by aoa init)
 
   Install once → enable per-project → search anywhere
+
+ALIASES
+  search, s    → grep     (deprecated)
+  multi, m     → grep -a  (deprecated)
+  pattern, p   → egrep    (deprecated)
 
 EOF
 }
@@ -2552,16 +3050,34 @@ main() {
         history|h)  cmd_history "$@" ;;
         reset)      cmd_reset "$@" ;;
 
+        # Search (Unix parity)
+        grep|g)     cmd_grep "$@" ;;
+        egrep|eg)   cmd_egrep "$@" ;;
+
+        # Search (deprecated aliases)
+        search|s)   cmd_grep "$@" ;;
+        multi|m)    cmd_grep -a "$@" ;;
+        pattern|p)  cmd_egrep "$@" ;;
+
         # Local Index
-        search)     cmd_search "$@" ;;
-        multi|m)    cmd_multi "$@" ;;
         changes|c)  cmd_changes "$@" ;;
         files|f)    cmd_files "$@" ;;
         outline|o)  cmd_outline "$@" ;;
         enrich|e)   cmd_outline --pending ;;  # Alias - now part of outline
 
-        # Pattern Search
-        pattern|p)  cmd_pattern "$@" ;;
+        # File Discovery (Unix parity)
+        find)       cmd_find "$@" ;;
+        tree)       cmd_tree "$@" ;;
+        locate)     cmd_locate "$@" ;;
+        head)       cmd_head "$@" ;;
+        tail)       cmd_tail "$@" ;;
+        lines)      cmd_lines "$@" ;;
+
+        # Behavioral (aOa unique)
+        hot)        cmd_hot "$@" ;;
+        touched)    cmd_touched "$@" ;;
+        focus)      cmd_focus "$@" ;;
+        predict)    cmd_predict "$@" ;;
 
         # Intent Tracking
         intent|i)   cmd_intent "$@" ;;

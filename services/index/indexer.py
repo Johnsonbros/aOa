@@ -308,25 +308,109 @@ outline_parser = OutlineParser()
 class CodebaseIndex:
     """Single codebase index with inverted index, file metadata, and change log."""
 
+    # Aggressive extension mapping - index everything, outline where tree-sitter available
+    # Tier 1: Full tree-sitter support (rich outlines)
+    # Tier 2: Basic indexing only (tokenization works, no structural outline)
     EXTENSIONS = {
-        '.ts': 'typescript', '.tsx': 'typescript',
-        '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript',
+        # === TIER 1: Tree-sitter supported (rich structural outline) ===
+        # Core systems
         '.py': 'python',
-        '.rs': 'rust',
+        '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+        '.ts': 'typescript', '.tsx': 'typescript', '.mts': 'typescript',
         '.go': 'go',
-        '.java': 'java',
+        '.rs': 'rust',
         '.c': 'c', '.h': 'c',
-        '.cpp': 'cpp', '.hpp': 'cpp', '.cc': 'cpp',
+        '.cpp': 'cpp', '.hpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.hxx': 'cpp',
+        '.java': 'java',
+        '.cs': 'csharp',
         '.rb': 'ruby',
         '.php': 'php',
         '.swift': 'swift',
-        '.kt': 'kotlin',
-        '.scala': 'scala',
-        '.cs': 'csharp',
-        '.json': 'json',
+        '.kt': 'kotlin', '.kts': 'kotlin',
+        '.scala': 'scala', '.sc': 'scala',
+        '.lua': 'lua',
+        '.ex': 'elixir', '.exs': 'elixir',
+        '.hs': 'haskell', '.lhs': 'haskell',
+        '.sh': 'bash', '.bash': 'bash', '.zsh': 'bash',
+        '.sql': 'sql',
+        '.html': 'html', '.htm': 'html',
+        '.css': 'css', '.scss': 'scss', '.sass': 'scss', '.less': 'css',
+        '.json': 'json', '.jsonc': 'json',
         '.yaml': 'yaml', '.yml': 'yaml',
         '.toml': 'toml',
-        '.md': 'markdown',
+        '.md': 'markdown', '.mdx': 'markdown',
+        '.xml': 'xml', '.xsl': 'xml', '.xslt': 'xml',
+        '.vue': 'vue',
+        '.svelte': 'svelte',
+
+        # === TIER 2: Indexing only (no tree-sitter, but still searchable) ===
+        # JVM ecosystem
+        '.groovy': 'groovy', '.gradle': 'groovy',
+        '.clj': 'clojure', '.cljs': 'clojure', '.cljc': 'clojure', '.edn': 'clojure',
+        # .NET ecosystem
+        '.fs': 'fsharp', '.fsx': 'fsharp', '.fsi': 'fsharp',
+        '.vb': 'vb',
+        # Systems
+        '.zig': 'zig',
+        '.nim': 'nim',
+        '.d': 'd',
+        '.ada': 'ada', '.adb': 'ada', '.ads': 'ada',
+        '.f90': 'fortran', '.f95': 'fortran', '.f03': 'fortran', '.f': 'fortran',
+        '.cob': 'cobol', '.cbl': 'cobol',
+        # Scripting
+        '.pl': 'perl', '.pm': 'perl',
+        '.r': 'r', '.R': 'r',
+        '.jl': 'julia',
+        '.tcl': 'tcl',
+        '.awk': 'awk',
+        '.sed': 'sed',
+        # Functional
+        '.ml': 'ocaml', '.mli': 'ocaml',
+        '.erl': 'erlang', '.hrl': 'erlang',
+        '.elm': 'elm',
+        '.purs': 'purescript',
+        '.rkt': 'racket',
+        '.scm': 'scheme', '.ss': 'scheme',
+        '.lisp': 'lisp', '.cl': 'lisp', '.el': 'elisp',
+        # Web/mobile
+        '.dart': 'dart',
+        '.coffee': 'coffeescript',
+        '.slim': 'slim',
+        '.haml': 'haml',
+        '.pug': 'pug', '.jade': 'pug',
+        '.ejs': 'ejs',
+        '.hbs': 'handlebars', '.handlebars': 'handlebars',
+        '.mustache': 'mustache',
+        '.twig': 'twig',
+        '.liquid': 'liquid',
+        # Data/config
+        '.graphql': 'graphql', '.gql': 'graphql',
+        '.proto': 'protobuf',
+        '.thrift': 'thrift',
+        '.avsc': 'avro',
+        '.tf': 'terraform', '.tfvars': 'terraform',
+        '.hcl': 'hcl',
+        '.nix': 'nix',
+        '.dhall': 'dhall',
+        '.ini': 'ini', '.cfg': 'ini', '.conf': 'ini',
+        '.env': 'dotenv',
+        '.properties': 'properties',
+        # DevOps/CI
+        '.dockerfile': 'dockerfile',
+        '.containerfile': 'dockerfile',
+        '.jenkinsfile': 'groovy',
+        '.makefile': 'make', '.mk': 'make',
+        '.cmake': 'cmake',
+        # Documentation
+        '.rst': 'rst',
+        '.adoc': 'asciidoc', '.asciidoc': 'asciidoc',
+        '.tex': 'latex', '.latex': 'latex',
+        '.org': 'org',
+        # Misc
+        '.diff': 'diff', '.patch': 'diff',
+        '.log': 'log',
+        '.csv': 'csv',
+        '.tsv': 'tsv',
     }
 
     IGNORE_DIRS = {
