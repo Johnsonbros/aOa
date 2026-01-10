@@ -160,34 +160,41 @@ aoa init
 
 Each project gets its own isolated index. Your work-project doesn't pollute your side-project.
 
-### 3. Open Claude Code
+### 3. Say Hello
 
-Restart Claude Code in your project. Then just say:
+Open Claude Code in your project and say any of these:
 
 ```
+"Hey aOa"
 "Hey aOa, help me get started"
+"Tag my code"
 ```
 
-Claude walks you through it:
+aOa responds:
 
 ```
 ⚡ aOa activated for your-project
 
+Let me run a free background agent to semantically compress your codebase.
+This doesn't use any of your tokens—it runs in the background while you work.
+
+Takes about 2-3 minutes. Watch progress anytime:
+  aoa intent
+
 Indexing 247 files...
-  src/auth.py          [auth, session, middleware, jwt]
-  src/api/routes.py    [routes, handlers, validation]
-  src/db/models.py     [database, orm, user, schema]
+  src/auth.py          #auth #session #middleware #jwt
+  src/api/routes.py    #routes #handlers #validation
+  src/db/models.py     #database #orm #user #schema
+  ...
 
 ✓ Ready │ 247 files │ 892 symbols
 
-You're all set. Just code—I'm learning your patterns.
-
-Want to see more?
-  • aoa quickstart  - full indexing details
-  • aoa intent      - watch me learn in real-time
+I'm ready to help. Just ask me to find anything.
 ```
 
-Now just code. You'll see the status line evolve as aOa learns:
+That's it. **Free. Background. No tokens.** Just semantic understanding of your code.
+
+Run `aoa intent` anytime to see it working:
 
 ```
 ⚡ aOa 🟢 42 │ ↓12k ⚡1m30s saved │ ctx:28k/200k (14%) │ Opus 4.5

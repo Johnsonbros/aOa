@@ -45,22 +45,17 @@ When the user addresses an agent by name using "Hey [AgentName]", spawn that age
 | "Hey 131" | 131 | Research-only problem solving with parallel solution discovery |
 | "Hey GH" | gh | Growth Hacker - solutions architect, problem decomposer |
 
-### aOa-Aware Agents (IMPORTANT)
+### ⚠️ Subagents Don't Get Hooks
 
-**When spawning subagents for codebase exploration, use aOa agents instead of built-in Explore:**
+**DO NOT use subagents for codebase exploration.** Subagents run in a separate context and don't trigger aOa hooks. This means:
+- ❌ No intent capture
+- ❌ No predictions
+- ❌ No learning
+- ❌ Breaks the aOa value proposition
 
-| Use This | Instead Of | Why |
-|----------|------------|-----|
-| `aoa-scout` | Explore (quick) | Uses `aoa grep`, 10-50x faster |
-| `aoa-explore` | Explore (thorough) | Uses `aoa grep`, saves tokens |
+**Keep exploration in the main conversation** where hooks work.
 
-**Built-in Explore agents don't use aOa** - they fall back to slow Grep/Glob.
-
-Example - spawning parallel searches:
-```
-Task(subagent_type="aoa-scout", prompt="Find authentication handlers")
-Task(subagent_type="aoa-scout", prompt="Find database models")
-```
+**Exception:** `aoa-outline` is fine for background tagging (write-only, doesn't need hooks).
 
 ### Agent Context Loading
 
