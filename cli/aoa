@@ -1447,7 +1447,7 @@ PYEOF
     echo ""
     echo -e "${DIM}─────────────────────────────────────────────────────────────────────────────────────────────${NC}"
     echo ""
-    echo -e "ACTION     SOURCE   ATTRIB       ⚡ aOa IMPACT               TAGS                                                    TARGET"
+    echo -e "ACTION     SOURCE   ATTRIB       aOa IMPACT                TAGS                                                    TARGET"
 
     # Process records - extract file_size (baseline) and output_size (actual)
     # Skip records with no files (noise) - require at least one real file
@@ -1663,8 +1663,8 @@ PYEOF
         elif [ "$saved" = "-" ]; then
             impact="-"
         elif [ "$saved" = "SLOW" ]; then
-            # Glob/Grep warning - suggest aoa search (no fabricated timing)
-            impact="${YELLOW}⚠️ slow${NC} ${DIM}(use 'aoa search' instead)${NC}"
+            # Glob/Grep warning - short to fit 25-char column
+            impact="${YELLOW}⚠️ slow${NC} ${DIM}→ aoa search${NC}"
         elif [ "$saved" = "AI" ]; then
             if [ "$action" = "Outline" ]; then
                 impact="${CYAN}symbol tags${NC}"
@@ -1726,6 +1726,8 @@ PYEOF
         # Strip ANSI codes for impact
         local impact_visible=$(echo -e "$impact" | sed 's/\x1b\[[0-9;]*m//g')
         local impact_len=${#impact_visible}
+        # Emoji ⚠️ is 2 display cols but counts as 1 char - adjust
+        [[ "$impact_visible" == *"⚠️"* ]] && impact_len=$((impact_len + 1))
         local impact_pad=$((25 - impact_len))
 
         printf "%-10s " "$action"
