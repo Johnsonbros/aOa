@@ -695,6 +695,37 @@ cmd_grep() {
         return 1
     fi
 
+    # === Smart Routing: detect regex patterns and route appropriately ===
+
+    # Simple pipe OR: foo|bar or foo\|bar → convert to space OR
+    # This is the #1 friction point - users expect | to mean OR
+    if [[ "$query" =~ ^[a-zA-Z0-9_]+([\\]?\|[a-zA-Z0-9_]+)+$ ]]; then
+        # Convert pipes (escaped or not) to spaces for OR search
+        local converted="${query//\\|/ }"
+        converted="${converted//|/ }"
+        echo -e "${DIM}(| → OR search: ${converted})${NC}"
+        query="$converted"
+
+    # Glob pattern: starts with * or looks like *.ext → suggest aoa find
+    elif [[ "$query" == \** || "$query" == *'**'* ]]; then
+        echo -e "${YELLOW}Tip:${NC} Use 'aoa find' for file patterns"
+        echo -e "  ${DIM}aoa find \"$query\"${NC}"
+        return 1
+
+    # Complex regex: contains metacharacters that won't work in symbol search
+    # Route to egrep for actual regex matching
+    # Check for: . * + ? ^ $ [ ] { } ( ) \
+    elif [[ "$query" == *'.'* || "$query" == *'*'* || "$query" == *'+'* || \
+            "$query" == *'?'* || "$query" == *'^'* || "$query" == *'$'* || \
+            "$query" == *'['* || "$query" == *'\'* || "$query" == *'('* ]] && \
+         [[ ! "$query" =~ ^[a-zA-Z0-9_\ ]+$ ]]; then
+        echo -e "${DIM}(regex detected → pattern search)${NC}"
+        cmd_egrep "$query"
+        return $?
+    fi
+
+    # === End Smart Routing ===
+
     # Get current project context
     local project_id=$(get_project_id)
     local project_param=""
@@ -1830,13 +1861,18 @@ cmd_egrep() {
     local ms=$(echo "$result" | jq -r '.stats.ms')
     local files=$(echo "$result" | jq -r '.stats.files_searched')
     local matched=$(echo "$result" | jq -r '.stats.files_matched')
-    local idx=$(echo "$result" | jq -r '.index')
 
-    echo -e "${DIM}Pattern search in ${idx}: ${files} files, ${matched} matched, ${ms}ms${NC}"
-    echo ""
+    # Count total hits (sum of all matches across files)
+    local hits=$(echo "$result" | jq '[.results | to_entries[].value | length] | add // 0')
 
-    # Output results grouped by pattern
-    echo "$result" | jq -r '.results | to_entries[] | "\u001b[1m\(.key):\u001b[0m", (.value[] | "  \(.file):\(.line) \u001b[2m\(.context)\u001b[0m"), ""'
+    # Format ms to 2 decimal places
+    local ms_fmt=$(printf "%.2f" "$ms")
+
+    # Consistent branding with grep output
+    printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%sms${NC} ${DIM}│${NC} %s files\n" "$hits" "$ms_fmt" "$files"
+
+    # Output results (simplified - just file:line with context)
+    echo "$result" | jq -r '.results | to_entries[].value[] | "  \(.file):\(.line) \u001b[2m\(.context)\u001b[0m"'
 }
 
 # Deprecated: use cmd_egrep instead
@@ -2057,8 +2093,9 @@ PYEOF
             file_size: (if (.file_sizes and .files[0]) then .file_sizes[.files[0]] else null end),
             output_size: .output_size
         } |
-        "\(.tool)|\(.files)|\(.tags)|\(.file_size // 0)|\(.output_size // 0)|\(.file_count)"
-    ' 2>/dev/null | while IFS='|' read -r tool file tags file_size output_size file_count; do
+        # Use ASCII Unit Separator (0x1F) - designed for field separation, never in user input
+        "\(.tool)\u001f\(.files)\u001f\(.tags)\u001f\(.file_size // 0)\u001f\(.output_size // 0)\u001f\(.file_count)"
+    ' 2>/dev/null | while IFS=$'\x1f' read -r tool file tags file_size output_size file_count; do
         # Map tool to action and determine source
         local action="$tool"
         local source="Claude"
@@ -2092,8 +2129,8 @@ PYEOF
                     # Extract term: everything between field 3 and hits:time
                     # Remove "cmd:aoa:type:" prefix and ":hits:time" suffix
                     local aoa_term=$(echo "$file" | sed "s/^cmd:aoa:${aoa_type}://" | sed "s/:${aoa_hits}:${aoa_time}$//")
-                    # Unescape colons in term
-                    aoa_term=$(echo "$aoa_term" | sed 's/\\:/:/g')
+                    # URL-decode the term (handles all special chars: |, \, :, etc.)
+                    aoa_term=$(python3 -c "from urllib.parse import unquote; print(unquote('$aoa_term'))" 2>/dev/null || echo "$aoa_term")
                     # Store for later use in attribution/impact
                     export AOA_SEARCH_TYPE="$aoa_type"
                     export AOA_SEARCH_HITS="$aoa_hits"
@@ -2247,7 +2284,13 @@ PYEOF
             impact="${CYAN}enriched${NC}"
         elif [ "$action" = "Search" ] || [ "$action" = "Find" ] || [ "$action" = "Locate" ] || [ "$action" = "Tree" ]; then
             # aOa search/discovery operations - show command type as attribution
-            case "$AOA_SEARCH_TYPE" in
+            # Detect pattern search: if grep took >5ms, it was routed to egrep (pattern search)
+            local search_type="$AOA_SEARCH_TYPE"
+            if [[ "$search_type" == "grep" ]] && [[ -n "$AOA_SEARCH_TIME" ]]; then
+                local time_int=$(printf "%.0f" "$AOA_SEARCH_TIME" 2>/dev/null || echo "0")
+                [ "$time_int" -gt 5 ] && search_type="egrep"
+            fi
+            case "$search_type" in
                 grep|search)  attribution="${CYAN}symbol${NC}" ;;
                 egrep|pattern) attribution="${CYAN}pattern${NC}" ;;
                 multi)        attribution="${CYAN}multi${NC}" ;;
@@ -2283,7 +2326,7 @@ PYEOF
             impact="-"
         elif [ "$saved" = "SLOW" ]; then
             # Glob/Grep warning - short to fit 25-char column
-            impact="${YELLOW}⚠️ slow${NC} ${DIM}→ aoa search${NC}"
+            impact="${YELLOW}slow${NC} ${DIM}→ aoa grep${NC}"
         elif [ "$saved" = "AI" ]; then
             if [ "$action" = "Outline" ]; then
                 impact="${CYAN}symbol tags${NC}"
@@ -2345,8 +2388,6 @@ PYEOF
         # Strip ANSI codes for impact
         local impact_visible=$(echo -e "$impact" | sed 's/\x1b\[[0-9;]*m//g')
         local impact_len=${#impact_visible}
-        # Emoji ⚠️ is 2 display cols but counts as 1 char - adjust
-        [[ "$impact_visible" == *"⚠️"* ]] && impact_len=$((impact_len + 1))
         local impact_pad=$((25 - impact_len))
 
         printf "%-10s " "$action"

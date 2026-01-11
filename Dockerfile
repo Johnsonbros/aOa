@@ -79,10 +79,11 @@ logfile=/var/log/supervisor/supervisord.log
 pidfile=/var/run/supervisord.pid
 
 [program:redis]
-command=redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+command=redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru --loglevel warning
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/redis.log
+stdout_logfile_maxbytes=1MB
 stderr_logfile=/var/log/supervisor/redis-error.log
 
 [program:index]
@@ -92,6 +93,7 @@ environment=CODEBASE_ROOT="",REPOS_ROOT="/repos",CONFIG_DIR="/config",INDEXES_DI
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/index.log
+stdout_logfile_maxbytes=1MB
 stderr_logfile=/var/log/supervisor/index-error.log
 
 [program:status]
@@ -101,6 +103,7 @@ environment=REDIS_URL="redis://localhost:6379/0",STATUS_PORT="9998",CLAUDE_SESSI
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/status.log
+stdout_logfile_maxbytes=1MB
 stderr_logfile=/var/log/supervisor/status-error.log
 
 [program:proxy]
@@ -110,6 +113,7 @@ environment=REPOS_ROOT="/repos",WHITELIST_FILE="/config/whitelist.txt",MAX_REPO_
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/proxy.log
+stdout_logfile_maxbytes=1MB
 stderr_logfile=/var/log/supervisor/proxy-error.log
 
 [program:gateway]
@@ -119,6 +123,7 @@ environment=INDEX_URL="http://localhost:9999",STATUS_URL="http://localhost:9998"
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/gateway.log
+stdout_logfile_maxbytes=1MB
 stderr_logfile=/var/log/supervisor/gateway-error.log
 EOF
 

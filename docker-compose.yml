@@ -41,6 +41,11 @@ services:
       - status
       - proxy
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
 
   # ===========================================================================
   # Index - Codebase search and intent tracking (NO internet)
@@ -66,6 +71,11 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
 
   # ===========================================================================
   # Status - Session metrics (NO internet)
@@ -85,18 +95,28 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
 
   # ===========================================================================
   # Redis - Hot-path storage (NO internet)
   # ===========================================================================
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru --loglevel warning
     volumes:
       - redis-data:/data
     networks:
       - aoa-internal
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
 
   # ===========================================================================
   # Proxy - Controlled internet access (whitelisted URLs only)
@@ -117,6 +137,11 @@ services:
       - aoa-internal   # Can talk to other services
       - aoa-external   # Can reach internet (whitelisted only)
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
 
 # =============================================================================
 # Networks
