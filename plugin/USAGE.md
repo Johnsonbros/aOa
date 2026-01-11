@@ -275,17 +275,27 @@ Run the `aoa-outline` agent to generate semantic tags:
 
 When you see `## aOa Auto-Tag Request` in hook output, you MUST:
 
-1. Spawn a Haiku task with the prompt provided
-2. Store the resulting tags via the curl command shown
+1. Generate 3-5 semantic hashtags directly (YOU are the model - no Task tool needed)
+2. Store the tags via the curl command shown
 
-Example:
+Example - just generate tags in your response:
 ```
-Task(model="haiku", prompt="Generate 3-5 semantic hashtags...")
+Tags: ["#authentication", "#session-management", "#api-handler"]
 ```
 
-Then store:
+Then store with `"tool": "Intent"`:
 ```bash
-curl -s -X POST localhost:8080/intent -H "Content-Type: application/json" -d '{"session_id": "...", "tags": ["#routing", "#auth"]}'
+curl -s -X POST localhost:8080/intent -H "Content-Type: application/json" -d '{"tool": "Intent", "session_id": "...", "project_id": "...", "files": [...], "tags": ["#routing", "#auth"]}'
 ```
 
 This builds semantic context automatically as you work. **Don't skip this.**
+
+---
+
+## Predicted Files (AUTOMATIC)
+
+When you see `## aOa Predicted Files` in hook output, these are files predicted based on your prompt keywords.
+
+- Review the snippets before exploring the codebase
+- These predictions improve as more intents are captured
+- Accuracy shows in status line (aim for 80%+)

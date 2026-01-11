@@ -263,7 +263,18 @@ Once done, I'll find code by meaning, not just keywords.
 - ✅ Read specific line ranges from aOa results (not whole files)
 - ❌ DO NOT use subagents for codebase exploration (hooks don't work in subagents)
 
-See `.aoa/USAGE.md` for full guide.
+## Hook Integration
+
+aOa hooks run on every prompt and tool use. When you see these in additionalContext:
+
+**aOa Auto-Tag Request**: Generate 3-5 semantic hashtags directly (YOU are the model), then store:
+\`\`\`bash
+curl -s -X POST localhost:8080/intent -H "Content-Type: application/json" -d '{"tool": "Intent", "tags": ["#your-tags"], ...}'
+\`\`\`
+
+**aOa Predicted Files**: Files predicted based on your prompt keywords. Consider these when exploring.
+
+See \`.aoa/USAGE.md\` for full guide.
 EOFCLAUDE
             echo -e "${GREEN}✓${NC} ${DIM}(appended)${NC}"
         else
@@ -317,7 +328,18 @@ Once done, I'll find code by meaning, not just keywords.
 - ✅ Read specific line ranges from aOa results (not whole files)
 - ❌ DO NOT use subagents for codebase exploration (hooks don't work in subagents)
 
-See `.aoa/USAGE.md` for full guide.
+## Hook Integration
+
+aOa hooks run on every prompt and tool use. When you see these in additionalContext:
+
+**aOa Auto-Tag Request**: Generate 3-5 semantic hashtags directly (YOU are the model), then store:
+\`\`\`bash
+curl -s -X POST localhost:8080/intent -H "Content-Type: application/json" -d '{"tool": "Intent", "tags": ["#your-tags"], ...}'
+\`\`\`
+
+**aOa Predicted Files**: Files predicted based on your prompt keywords. Consider these when exploring.
+
+See \`.aoa/USAGE.md\` for full guide.
 EOFCLAUDE
         echo -e "${GREEN}✓${NC} ${DIM}(created)${NC}"
     fi
@@ -1904,6 +1926,9 @@ cmd_intent() {
         stats)
             cmd_intent_stats "$@"
             ;;
+        store|s)
+            cmd_intent_store "$@"
+            ;;
         *)
             echo -e "${BOLD}Intent Tracking${NC}"
             echo ""
@@ -1913,6 +1938,7 @@ cmd_intent() {
             echo "  aoa intent files <tag>      Files associated with a tag"
             echo "  aoa intent file <path>      Tags associated with a file"
             echo "  aoa intent stats            Intent index statistics"
+            echo "  aoa intent store <tags> [files...]  Store AI-generated intent tags"
             ;;
     esac
 }
@@ -2505,6 +2531,51 @@ cmd_intent_stats() {
     echo -e "${DIM}─────────────────────────────────────────────────────────────────────────────────────────────${NC}"
     echo ""
     echo -e "${DIM}Run 'aoa intent' to see recent activity with per-operation details${NC}"
+}
+
+cmd_intent_store() {
+    # Store AI-generated intent tags
+    # Usage: aoa intent store "#tag1 #tag2 #tag3" [file1] [file2] ...
+    local tags_str="$1"
+    shift || true
+
+    if [ -z "$tags_str" ]; then
+        echo -e "${RED}Usage: aoa intent store \"#tag1 #tag2\" [file1] [file2]${NC}"
+        echo -e "${DIM}Example: aoa intent store \"#auth #validation\" src/auth.py${NC}"
+        return 1
+    fi
+
+    local project_id=$(get_project_id)
+    local session_id="${AOA_SESSION_ID:-$(date +%Y%m%d)}"
+
+    # Parse tags (space or comma separated)
+    local tags_json=$(echo "$tags_str" | tr ',' ' ' | xargs -n1 | sed 's/^#*/#/' | jq -R . | jq -s .)
+
+    # Collect files (remaining args, or use current context files)
+    local files_json="[]"
+    if [ $# -gt 0 ]; then
+        files_json=$(printf '%s\n' "$@" | jq -R . | jq -s .)
+    fi
+
+    # Build and send request
+    local payload=$(jq -n \
+        --arg sid "$session_id" \
+        --arg pid "$project_id" \
+        --argjson tags "$tags_json" \
+        --argjson files "$files_json" \
+        '{session_id: $sid, project_id: $pid, tool: "Intent", tags: $tags, files: $files}')
+
+    local result=$(curl -s -X POST "${INDEX_URL}/intent" \
+        -H "Content-Type: application/json" \
+        -d "$payload")
+
+    if echo "$result" | jq -e '.success' > /dev/null 2>&1; then
+        local tag_count=$(echo "$tags_json" | jq 'length')
+        echo -e "${GREEN}✓${NC} Stored ${tag_count} tags"
+    else
+        echo -e "${RED}✗${NC} Failed to store tags"
+        return 1
+    fi
 }
 
 cmd_rate() {
