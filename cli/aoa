@@ -3181,6 +3181,7 @@ cmd_quickstart() {
 
         if [ -n "$err" ]; then
             errors=$((errors + 1))
+            [ -n "$VERBOSE" ] && echo -e "\n${YELLOW}Failed to get outline:${NC} $file ($err)" >&2
         else
             # Build symbols array with pattern-inferred tags
             local symbols_with_tags="["
@@ -3199,21 +3200,41 @@ cmd_quickstart() {
                 local tag_count=$(echo "$tags" | jq 'length')
                 total_tags=$((total_tags + tag_count))
 
-                # Build symbol object
+                # Build symbol object with proper JSON escaping
+                local sym_obj=$(jq -n \
+                    --arg name "$sym_name" \
+                    --arg kind "$sym_kind" \
+                    --argjson line "$sym_line" \
+                    --argjson end "$sym_end" \
+                    --argjson tags "$tags" \
+                    '{name: $name, kind: $kind, line: $line, end_line: $end, tags: $tags}')
                 $first || symbols_with_tags+=","
                 first=false
-                symbols_with_tags+="{\"name\":\"${sym_name}\",\"kind\":\"${sym_kind}\",\"line\":${sym_line},\"end_line\":${sym_end},\"tags\":${tags}}"
+                symbols_with_tags+="$sym_obj"
 
             done < <(echo "$result" | jq -c '.symbols[]')
 
             symbols_with_tags+="]"
 
-            # POST to /outline/enriched with inferred tags
-            local mark_payload="{\"file\": \"${file}\", \"project\": \"${project_id}\", \"symbols\": ${symbols_with_tags}}"
-            curl -s -X POST "${INDEX_URL}/outline/enriched" \
+            # POST to /outline/enriched with inferred tags (use jq for proper escaping)
+            local mark_payload=$(jq -n \
+                --arg file "$file" \
+                --arg project "$project_id" \
+                --argjson symbols "$symbols_with_tags" \
+                '{file: $file, project: $project, symbols: $symbols}')
+
+            local response=$(curl -s -w "\n%{http_code}" -X POST "${INDEX_URL}/outline/enriched" \
                 -H "Content-Type: application/json" \
-                -d "$mark_payload" > /dev/null 2>&1
-            processed=$((processed + 1))
+                -d "$mark_payload")
+            local http_code=$(echo "$response" | tail -n1)
+
+            if [ "$http_code" = "200" ]; then
+                processed=$((processed + 1))
+            else
+                errors=$((errors + 1))
+                # Log failure for debugging (visible with VERBOSE=1)
+                [ -n "$VERBOSE" ] && echo -e "\n${YELLOW}Failed to enrich:${NC} $file (HTTP $http_code)" >&2
+            fi
         fi
 
         # Progress indicator every 5 files
@@ -3227,7 +3248,7 @@ cmd_quickstart() {
     echo ""
 
     if [ "$errors" -gt 0 ]; then
-        echo -e "${YELLOW}!${NC} ${errors} files had errors (unsupported language)"
+        echo -e "${YELLOW}!${NC} ${errors} files had errors (run with VERBOSE=1 for details)"
     fi
 
     echo -e "${GREEN}Done!${NC} Semantic compression complete."
