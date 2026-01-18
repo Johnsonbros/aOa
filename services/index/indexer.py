@@ -96,6 +96,14 @@ except ImportError:
     Scorer = None
     WeightTuner = None
 
+# Latency tracking module
+try:
+    from common.latency_tracker import LatencyTracker
+    LATENCY_TRACKING_AVAILABLE = True
+except ImportError:
+    LATENCY_TRACKING_AVAILABLE = False
+    LatencyTracker = None
+
 app = Flask(__name__)
 
 # ============================================================================
@@ -3344,6 +3352,43 @@ def get_metrics():
             'time_sec': intent_time_sec,  # Estimated from token savings
         }
 
+        # Get latency metrics (P50/P95/P99) from latency tracker
+        latency_data = {}
+        if latency_tracker:
+            try:
+                all_latencies = latency_tracker.get_all_stats()
+                latency_data = all_latencies
+            except Exception as e:
+                latency_data = {'error': str(e)}
+
+        # Get cache hit rates
+        cache_data = {}
+        try:
+            # Redis cache info
+            info = scorer.redis.client.info('stats')
+            keyspace = scorer.redis.client.info('keyspace')
+
+            # Calculate cache hit rate from Redis stats
+            hits_val = info.get('keyspace_hits', 0)
+            misses_val = info.get('keyspace_misses', 0)
+            total_ops = hits_val + misses_val
+            cache_hit_rate = (hits_val / total_ops * 100) if total_ops > 0 else 0
+
+            cache_data = {
+                'redis': {
+                    'hits': hits_val,
+                    'misses': misses_val,
+                    'hit_rate': round(cache_hit_rate, 2),
+                    'total_keys': sum(db.get('keys', 0) for db in keyspace.values()),
+                },
+                'symbol_table': {
+                    'total_symbols': len(manager.local.inverted_index) if manager.local else 0,
+                    'total_files': len(manager.local.files) if manager.local else 0,
+                }
+            }
+        except Exception as e:
+            cache_data = {'error': str(e)}
+
         return jsonify({
             # Primary metrics
             'hit_at_5': hit_at_5,
@@ -3368,7 +3413,13 @@ def get_metrics():
             },
 
             # Savings (cumulative) - include intent index real measurements
-            'savings': savings_data
+            'savings': savings_data,
+
+            # NEW: Latency metrics (P50/P95/P99 per service)
+            'latency': latency_data,
+
+            # NEW: Cache hit rates (Redis + symbol table)
+            'cache': cache_data
         })
 
     except Exception as e:
@@ -3750,6 +3801,7 @@ def read_file_snippet(file_path: str, max_lines: int = 20, keywords: list = None
 # Global scorer and tuner instances
 scorer = None
 tuner = None  # Phase 4: Thompson Sampling weight tuner
+latency_tracker = None  # Latency tracking for P50/P95/P99 metrics
 
 
 @app.route('/rank')
@@ -4546,7 +4598,7 @@ def get_memory():
 # ============================================================================
 
 def main():
-    global manager, intent_index, scorer, tuner
+    global manager, intent_index, scorer, tuner, latency_tracker
 
     codebase_root = os.environ.get('CODEBASE_ROOT', '')
     repos_root = os.environ.get('REPOS_ROOT', './repos')
@@ -4577,6 +4629,11 @@ def main():
             # Phase 4: Initialize weight tuner
             tuner = WeightTuner(scorer.redis)
             print("Weight tuner initialized (8 arms)")
+
+            # Initialize latency tracker
+            if LATENCY_TRACKING_AVAILABLE:
+                latency_tracker = LatencyTracker(scorer.redis.client)
+                print("Latency tracker initialized (P50/P95/P99 tracking)")
         else:
             print("Ranking scorer initialized (Redis not available)")
             scorer = None

@@ -19,10 +19,22 @@ import time
 import json
 import httpx
 import asyncio
+import redis
 from datetime import datetime
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
+
+# Add parent directory to path for imports
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    from common.latency_tracker import LatencyTracker
+    LATENCY_TRACKING_AVAILABLE = True
+except ImportError:
+    LATENCY_TRACKING_AVAILABLE = False
+    LatencyTracker = None
 
 app = FastAPI(
     title="aOa Gateway",
@@ -130,6 +142,9 @@ ROUTES = {
 request_log: list = []
 MAX_LOG_SIZE = 1000
 
+# Latency tracker
+latency_tracker: Optional[LatencyTracker] = None
+
 # =============================================================================
 # HTTP Client
 # =============================================================================
@@ -139,8 +154,18 @@ client: Optional[httpx.AsyncClient] = None
 
 @app.on_event("startup")
 async def startup():
-    global client
+    global client, latency_tracker
     client = httpx.AsyncClient(timeout=30.0)
+
+    # Initialize latency tracker
+    if LATENCY_TRACKING_AVAILABLE:
+        try:
+            redis_url = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
+            redis_client = redis.from_url(redis_url, decode_responses=True)
+            latency_tracker = LatencyTracker(redis_client)
+            print(f"Latency tracker initialized")
+        except Exception as e:
+            print(f"Failed to initialize latency tracker: {e}")
 
 
 @app.on_event("shutdown")
@@ -186,6 +211,12 @@ async def proxy_request(
 
         # Log for audit
         log_request(request.method, request.url.path, service, response.status_code, elapsed)
+
+        # Track latency
+        if latency_tracker:
+            # Extract operation from path (e.g., /symbol -> symbol_search)
+            operation = path.strip('/').replace('/', '_') or 'root'
+            latency_tracker.record(service, operation, elapsed)
 
         return Response(
             content=response.content,

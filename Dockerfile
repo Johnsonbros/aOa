@@ -62,8 +62,10 @@ WORKDIR /app
 COPY services/gateway/gateway.py /app/gateway/
 COPY services/index/indexer.py /app/index/
 COPY services/ranking /app/ranking/
+COPY services/common /app/common/
 COPY services/status/status_service.py /app/status/
 COPY services/proxy/git_proxy.py /app/proxy/
+COPY services/sequence /app/sequence/
 
 # Copy CLI (available inside container)
 COPY cli/aoa /usr/local/bin/aoa
@@ -119,7 +121,7 @@ stderr_logfile=/var/log/supervisor/proxy-error.log
 [program:gateway]
 command=python /app/gateway/gateway.py
 directory=/app/gateway
-environment=INDEX_URL="http://localhost:9999",STATUS_URL="http://localhost:9998",PROXY_URL="http://localhost:9997"
+environment=INDEX_URL="http://localhost:9999",STATUS_URL="http://localhost:9998",PROXY_URL="http://localhost:9997",REDIS_URL="redis://localhost:6379/0"
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/gateway.log
