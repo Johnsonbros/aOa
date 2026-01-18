@@ -3476,9 +3476,9 @@ def predict_files():
                 'confidence': round(confidence, 3)
             }
 
-            # Read snippet if requested
+            # Read snippet if requested (with AST-aware extraction)
             if snippet_lines > 0:
-                snippet = read_file_snippet(file_path, snippet_lines)
+                snippet = read_file_snippet(file_path, snippet_lines, keywords=all_tags)
                 if snippet:
                     file_data['snippet'] = snippet
 
@@ -3499,7 +3499,7 @@ def predict_files():
                         'source': 'transition'
                     }
                     if snippet_lines > 0:
-                        snippet = read_file_snippet(trans_file, snippet_lines)
+                        snippet = read_file_snippet(trans_file, snippet_lines, keywords=all_tags)
                         if snippet:
                             file_data['snippet'] = snippet
                     files.append(file_data)
@@ -3528,9 +3528,121 @@ def predict_files():
         }), 500
 
 
-def read_file_snippet(file_path: str, max_lines: int = 20) -> str:
+def extract_smart_snippet(file_path: str, keywords: list, max_lines: int = 20, language: str = None) -> Optional[str]:
     """
-    Read first N lines of a file for snippet prefetch.
+    Extract AST-aware snippet by finding symbols matching keywords.
+
+    Uses tree-sitter to:
+    - Find functions/classes containing keywords in their name
+    - Extract full symbol with signature and docstring
+    - Include surrounding context for better understanding
+
+    Args:
+        file_path: Absolute path to file
+        keywords: List of keywords to match against symbol names
+        max_lines: Maximum lines to return per symbol
+        language: Language hint (auto-detected from extension if None)
+
+    Returns:
+        Smart snippet string, or None if AST parsing fails
+    """
+    if not TREE_SITTER_AVAILABLE or not keywords:
+        return None
+
+    # Auto-detect language from file extension
+    if not language:
+        ext = os.path.splitext(file_path)[1].lstrip('.')
+        # Map common extensions
+        ext_map = {
+            'py': 'python', 'js': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+            'go': 'go', 'rs': 'rust', 'java': 'java', 'c': 'c', 'cpp': 'cpp', 'cc': 'cpp',
+            'rb': 'ruby', 'php': 'php', 'swift': 'swift', 'kt': 'kotlin', 'scala': 'scala',
+            'cs': 'csharp', 'sh': 'bash', 'bash': 'bash'
+        }
+        language = ext_map.get(ext)
+
+    if not language:
+        return None
+
+    # Parse file using existing outline parser
+    try:
+        symbols = outline_parser.parse_file(file_path, language)
+    except Exception:
+        return None
+
+    if not symbols:
+        return None
+
+    # Normalize keywords for matching
+    keywords_lower = [k.lower() for k in keywords]
+
+    # Score symbols by keyword match
+    scored_symbols = []
+    for sym in symbols:
+        score = 0
+        sym_name_lower = sym.name.lower()
+
+        # Exact match gets highest score
+        for kw in keywords_lower:
+            if kw == sym_name_lower:
+                score += 100
+            elif kw in sym_name_lower:
+                score += 50
+            elif sym_name_lower in kw:
+                score += 30
+
+        # Boost functions/classes over other types
+        if sym.kind in ('function', 'class', 'method'):
+            score += 10
+
+        if score > 0:
+            scored_symbols.append((score, sym))
+
+    if not scored_symbols:
+        return None
+
+    # Sort by score (highest first) and take best match
+    scored_symbols.sort(reverse=True, key=lambda x: x[0])
+    best_symbol = scored_symbols[0][1]
+
+    # Read file to extract symbol content
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            all_lines = f.readlines()
+    except (IOError, OSError):
+        return None
+
+    # Extract symbol lines (convert from 1-indexed to 0-indexed)
+    start_idx = max(0, best_symbol.start_line - 1)
+    end_idx = min(len(all_lines), best_symbol.end_line)
+
+    # Include a few lines of context before (for decorators, comments)
+    context_before = max(0, start_idx - 3)
+
+    # Limit total lines
+    total_lines = end_idx - context_before
+    if total_lines > max_lines:
+        # If too long, just take from start_idx (skip extra context)
+        context_before = start_idx
+        end_idx = min(end_idx, start_idx + max_lines)
+
+    # Extract lines
+    snippet_lines = all_lines[context_before:end_idx]
+
+    # Add a header indicating what we found
+    header = f"# Matched: {best_symbol.kind} '{best_symbol.name}' (line {best_symbol.start_line})\n"
+    snippet = header + ''.join(snippet_lines)
+
+    return snippet
+
+
+def read_file_snippet(file_path: str, max_lines: int = 20, keywords: list = None) -> str:
+    """
+    Read snippet from file with optional AST-aware extraction.
+
+    If keywords are provided and tree-sitter is available, attempts to find
+    and extract relevant symbols (functions, classes) matching the keywords.
+    Falls back to first N lines if AST extraction fails.
 
     Returns empty string if file doesn't exist or can't be read.
     Handles common text files, skips binary files.
@@ -3564,6 +3676,13 @@ def read_file_snippet(file_path: str, max_lines: int = 20) -> str:
     if ext.lower() in binary_exts:
         return ''
 
+    # Try AST-aware extraction if keywords provided
+    if keywords:
+        smart_snippet = extract_smart_snippet(file_path, keywords, max_lines)
+        if smart_snippet:
+            return smart_snippet
+
+    # Fallback: read first N lines
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = []
@@ -4008,7 +4127,7 @@ def context_search():
         }
 
         if snippet_lines > 0:
-            snippet = read_file_snippet(file_path, snippet_lines)
+            snippet = read_file_snippet(file_path, snippet_lines, keywords=all_tags)
             if snippet:
                 file_data['snippet'] = snippet
 
@@ -4029,7 +4148,7 @@ def context_search():
                     'source': 'transition'
                 }
                 if snippet_lines > 0:
-                    snippet = read_file_snippet(trans_file, snippet_lines)
+                    snippet = read_file_snippet(trans_file, snippet_lines, keywords=all_tags)
                     if snippet:
                         file_data['snippet'] = snippet
                 files.append(file_data)
