@@ -11,6 +11,11 @@ Usage:
     CODEBASE_ROOT=/path/to/code REPOS_ROOT=/path/to/repos python indexer.py
 """
 
+import sys
+if sys.version_info < (3, 11):
+    print("Error: Python 3.11 or higher required")
+    sys.exit(1)
+
 import os
 import re
 import json
@@ -26,6 +31,7 @@ from collections import defaultdict
 from flask import Flask, request, jsonify
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import redis
 
 # Tree-sitter for code outlines (165+ languages via language-pack)
 try:
@@ -1708,7 +1714,6 @@ def mark_enriched():
 
     # Use Redis for tag counting (dedup + confidence tracking)
     try:
-        import redis
         r = redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
 
         for sym in symbols:
@@ -1810,7 +1815,6 @@ def get_symbol_tags():
 
     # Try to get counts from Redis
     try:
-        import redis
         r = redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
 
         # Scan for all tag counts for this file

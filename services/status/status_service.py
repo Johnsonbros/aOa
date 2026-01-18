@@ -11,6 +11,11 @@ Usage:
     python status_service.py
 """
 
+import sys
+if sys.version_info < (3, 11):
+    print("Error: Python 3.11 or higher required")
+    sys.exit(1)
+
 import os
 import re
 import json
@@ -26,8 +31,6 @@ import redis
 import requests
 
 # Import sequence tracker for temporal learning
-import sys
-from pathlib import Path
 # Add services directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from sequence.sequence_tracker import SequenceTracker, format_prediction

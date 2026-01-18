@@ -14,6 +14,11 @@ Trust Guarantees:
 - Network topology is visible at /network
 """
 
+import sys
+if sys.version_info < (3, 11):
+    print("Error: Python 3.11 or higher required")
+    sys.exit(1)
+
 import os
 import time
 import json

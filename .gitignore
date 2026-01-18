@@ -13,7 +13,8 @@ data/
 .claude/
 
 # Work tracking (BOARD.md, CURRENT.md, etc.)
-.context/
+.context/*
+!.context/*.example
 
 # Development assets
 assets/

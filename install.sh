@@ -368,9 +368,20 @@ PROJECTS_ROOT="$(cd "$PROJECTS_ROOT" && pwd)"
 echo -e "  ${GREEN}✓ Projects root: ${PROJECTS_ROOT}${NC}"
 echo
 
-# Create .env file
-echo -n "  Creating .env configuration... "
-cat > "$AOA_HOME/.env" << EOF
+# Create .env file (from .env.example template if not exists)
+if [ -f "$AOA_HOME/.env" ]; then
+    echo -n "  Updating .env configuration... "
+    # Update PROJECTS_ROOT in existing .env (preserve other customizations)
+    if grep -q "^PROJECTS_ROOT=" "$AOA_HOME/.env"; then
+        sed -i.bak "s|^PROJECTS_ROOT=.*|PROJECTS_ROOT=${PROJECTS_ROOT}|" "$AOA_HOME/.env"
+        rm -f "$AOA_HOME/.env.bak"
+    else
+        echo "PROJECTS_ROOT=${PROJECTS_ROOT}" >> "$AOA_HOME/.env"
+    fi
+    echo -e "${GREEN}✓${NC}"
+else
+    echo -n "  Creating .env configuration... "
+    cat > "$AOA_HOME/.env" << EOF
 # =============================================================================
 # aOa Docker Configuration
 # =============================================================================
@@ -387,8 +398,12 @@ PROJECTS_ROOT=${PROJECTS_ROOT}
 
 # Gateway port (change if 8080 is in use)
 GATEWAY_PORT=8080
+
+# Path to the codebase being analyzed (default: current directory)
+CODEBASE_PATH=.
 EOF
-echo -e "${GREEN}✓${NC}"
+    echo -e "${GREEN}✓${NC}"
+fi
 
 # Auto-detect Claude sessions
 CLAUDE_SESSIONS=""

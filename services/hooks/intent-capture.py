@@ -254,7 +254,8 @@ def check_prediction_hit(session_id: str, file_path: str):
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        urlopen(req, timeout=1)
+        with urlopen(req, timeout=1) as resp:
+            pass  # Fire and forget
     except (URLError, Exception):
         pass  # Fire and forget
 
@@ -395,7 +396,8 @@ def send_intent(tool: str, files: list, tags: list, session_id: str,
                     headers={"Content-Type": "application/json"},
                     method="POST"
                 )
-                urlopen(req, timeout=1)
+                with urlopen(req, timeout=1) as resp:
+                    pass  # Fire and forget
             except (URLError, Exception):
                 pass  # Never block
 

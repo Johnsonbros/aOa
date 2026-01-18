@@ -156,7 +156,8 @@ def log_prediction(session_id: str, files: list, keywords: list):
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        urlopen(req, timeout=1)
+        with urlopen(req, timeout=1) as resp:
+            pass  # Fire and forget
     except (URLError, Exception):
         pass  # Fire and forget
 

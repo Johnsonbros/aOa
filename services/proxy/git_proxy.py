@@ -24,6 +24,11 @@ Trust Guarantees:
 Even if compromised, this service can only access whitelisted URLs.
 """
 
+import sys
+if sys.version_info < (3, 11):
+    print("Error: Python 3.11 or higher required")
+    sys.exit(1)
+
 import os
 import re
 import subprocess
@@ -312,7 +317,7 @@ def list_repos() -> List[dict]:
                     size_mb = sum(
                         f.stat().st_size for f in repo_dir.rglob("*") if f.is_file()
                     ) / (1024 * 1024)
-                except:
+                except (OSError, PermissionError):
                     size_mb = 0
 
                 repos.append({
