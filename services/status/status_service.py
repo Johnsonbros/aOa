@@ -25,6 +25,13 @@ from flask import Flask, jsonify, request, Response
 import redis
 import requests
 
+# Import sequence tracker for temporal learning
+import sys
+from pathlib import Path
+# Add services directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from sequence.sequence_tracker import SequenceTracker, format_prediction
+
 app = Flask(__name__)
 
 # =============================================================================
@@ -37,6 +44,7 @@ PORT = int(os.environ.get('STATUS_PORT', 9998))
 # Global instances (initialized in main())
 manager = None
 syncer = None
+sequence_tracker = None
 
 # Model pricing (per 1M tokens) - as of January 2026
 PRICING = {
@@ -832,17 +840,175 @@ def get_baseline():
 
 
 # =============================================================================
+# Temporal Sequence Learning Endpoints
+# =============================================================================
+
+@app.route('/sequence/record', methods=['POST'])
+def sequence_record():
+    """
+    Record a file access for sequence learning.
+
+    Body: {
+        "session_id": "session123",
+        "project_id": "proj-uuid",
+        "file": "/path/to/file.py",
+        "tool": "Read"
+    }
+
+    This builds the Markov chain transition probabilities.
+    """
+    if sequence_tracker is None:
+        return jsonify({'error': 'Sequence tracker not initialized'}), 503
+
+    data = request.json
+    session_id = data.get('session_id')
+    project_id = data.get('project_id', 'default')
+    file_path = data.get('file')
+    tool = data.get('tool', 'unknown')
+
+    if not session_id or not file_path:
+        return jsonify({'error': 'session_id and file are required'}), 400
+
+    try:
+        # Use project-specific tracker
+        tracker = SequenceTracker(manager.r, project_id)
+        tracker.record_access(file_path, tool, session_id)
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/sequence/predict', methods=['GET', 'POST'])
+def sequence_predict():
+    """
+    Predict next files based on current file or recent session activity.
+
+    Query params (GET):
+        - file: current file path (optional)
+        - session_id: session ID for context-based prediction (optional)
+        - project_id: project ID (default: "default")
+        - limit: max results (default: 5)
+
+    Body (POST):
+        {
+            "file": "/path/to/file.py",  // optional
+            "session_id": "session123",   // optional
+            "project_id": "proj-uuid",    // optional
+            "limit": 10                    // optional
+        }
+
+    Returns list of predicted files with probabilities and timing.
+    """
+    if sequence_tracker is None:
+        return jsonify({'error': 'Sequence tracker not initialized'}), 503
+
+    if request.method == 'POST':
+        data = request.json or {}
+        file_path = data.get('file')
+        session_id = data.get('session_id')
+        project_id = data.get('project_id', 'default')
+        limit = int(data.get('limit', 5))
+    else:
+        file_path = request.args.get('file')
+        session_id = request.args.get('session_id')
+        project_id = request.args.get('project_id', 'default')
+        limit = int(request.args.get('limit', 5))
+
+    try:
+        tracker = SequenceTracker(manager.r, project_id)
+
+        if file_path:
+            # Predict from specific file
+            predictions = tracker.predict_next_files(file_path, limit)
+        elif session_id:
+            # Predict from recent session activity
+            predictions = tracker.predict_from_recent(session_id, limit)
+        else:
+            return jsonify({'error': 'Either file or session_id is required'}), 400
+
+        return jsonify({
+            'predictions': [p.to_dict() for p in predictions],
+            'count': len(predictions)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/sequence/matrix', methods=['GET'])
+def sequence_matrix():
+    """
+    Get transition probability matrix for a file.
+
+    Query params:
+        - file: file path (required)
+        - project_id: project ID (default: "default")
+
+    Returns dict of {target_file: probability}
+    """
+    if sequence_tracker is None:
+        return jsonify({'error': 'Sequence tracker not initialized'}), 503
+
+    file_path = request.args.get('file')
+    project_id = request.args.get('project_id', 'default')
+
+    if not file_path:
+        return jsonify({'error': 'file parameter is required'}), 400
+
+    try:
+        tracker = SequenceTracker(manager.r, project_id)
+        matrix = tracker.get_transition_matrix(file_path)
+        return jsonify({
+            'file': file_path,
+            'transitions': matrix,
+            'count': len(matrix)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/sequence/stats', methods=['GET'])
+def sequence_stats():
+    """
+    Get statistics about sequence learning.
+
+    Query params:
+        - project_id: project ID (default: "default")
+
+    Returns stats about total transitions, source files, etc.
+    """
+    if sequence_tracker is None:
+        return jsonify({'error': 'Sequence tracker not initialized'}), 503
+
+    project_id = request.args.get('project_id', 'default')
+
+    try:
+        tracker = SequenceTracker(manager.r, project_id)
+        stats = tracker.get_sequence_stats()
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
 def main():
-    global manager, syncer
+    global manager, syncer, sequence_tracker
 
     print(f"Starting aOa Status Service")
     print(f"Redis: {REDIS_URL}")
     print(f"Port: {PORT}")
 
     manager = StatusManager(REDIS_URL)
+
+    # Initialize sequence tracker for temporal learning
+    try:
+        sequence_tracker = SequenceTracker(manager.r, project_id='default')
+        print(f"Sequence tracker initialized")
+    except Exception as e:
+        print(f"Sequence tracker initialization failed: {e}")
+        sequence_tracker = None
 
     # Initialize subagent syncer
     # Use INDEX_URL from environment (matches docker-compose config)
