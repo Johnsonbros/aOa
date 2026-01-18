@@ -24,6 +24,7 @@ GATEWAY_PORT="${AOA_GATEWAY_PORT:-8080}"
 CLI_PATH="$(readlink -f "$0")"
 AOA_HOME="$(dirname "$(dirname "$CLI_PATH")")"
 AOA_DATA="${AOA_DATA:-$AOA_HOME/data}"
+export PATH="$AOA_HOME/bin:$PATH"
 
 INDEX_URL="http://${GATEWAY_HOST}:${GATEWAY_PORT}"
 STATUS_URL="http://${GATEWAY_HOST}:${GATEWAY_PORT}"
