@@ -231,6 +231,43 @@ Every tool call teaches it your patterns. The more you code, the smarter it gets
 
 ---
 
+## Adaptive Weight Learning
+
+aOa doesn't just predict which files you'll need—it **learns** which prediction strategy works best for your project.
+
+Different codebases have different patterns:
+- Test-heavy projects → recent files matter most
+- Monolithic apps → frequently-used core files dominate
+- Microservices → tag-based navigation wins
+
+Instead of hardcoded weights, aOa uses **Thompson Sampling** (a principled multi-armed bandit algorithm) to automatically optimize prediction accuracy for your specific workflow.
+
+**8 weight configurations compete in real-time:**
+- Each prediction samples from learned success distributions
+- Hits and misses update arm statistics
+- Best-performing weights naturally emerge
+
+**See what's working:**
+```bash
+aoa tuner stats
+
+# Adaptive Weight Learning (Thompson Sampling)
+#
+#   Total Samples: 150
+#
+# Arm Performance (sorted by success rate)
+#
+#   balanced-rf: 76% success (61 samples) - weights: r=0.4 f=0.4 t=0.2
+#   recency-heavy: 72% success (43 samples) - weights: r=0.5 f=0.3 t=0.2
+#   default: 68% success (28 samples) - weights: r=0.4 f=0.3 t=0.3
+```
+
+**The result:** Predictions that get better every session, automatically personalized to how you actually work.
+
+See [ADAPTIVE_WEIGHTS.md](ADAPTIVE_WEIGHTS.md) for technical details.
+
+---
+
 ## Your Data. Your Control.
 
 - **Local-first**—runs in Docker on your machine

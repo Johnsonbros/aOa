@@ -3603,6 +3603,92 @@ cmd_metrics() {
     fi
 }
 
+cmd_tuner() {
+    # aoa tuner [stats|best|reset]  - Adaptive weight learning (Thompson Sampling)
+    local subcmd="${1:-stats}"
+    shift || true
+
+    case "$subcmd" in
+        stats|s)
+            local stats=$(curl -s --connect-timeout 2 "${INDEX_URL}/tuner/stats" 2>/dev/null)
+
+            if [ -z "$stats" ] || echo "$stats" | jq -e '.error' > /dev/null 2>&1; then
+                echo -e "${RED}Tuner not available${NC}"
+                return 1
+            fi
+
+            local total_samples=$(echo "$stats" | jq -r '.total_samples // 0')
+
+            echo -e "${BOLD}Adaptive Weight Learning (Thompson Sampling)${NC}"
+            echo ""
+            echo -e "  Total Samples: ${total_samples}"
+            echo ""
+            echo -e "${BOLD}Arm Performance${NC} ${DIM}(sorted by success rate)${NC}"
+            echo ""
+
+            # Display top 3 arms
+            echo "$stats" | jq -r '.arms[:3] | .[] |
+                "  \(.name): \(.mean * 100 | floor)% success (\(.samples) samples) - weights: r=\(.weights.recency) f=\(.weights.frequency) t=\(.weights.tag)"'
+
+            echo ""
+            echo -e "${DIM}All arms: aoa tuner stats --json${NC}"
+
+            # Handle --json flag
+            if [[ "${1:-}" == "--json" ]] || [[ "${1:-}" == "-j" ]]; then
+                echo ""
+                echo "$stats" | jq .
+            fi
+            ;;
+
+        best|b)
+            local best=$(curl -s --connect-timeout 2 "${INDEX_URL}/tuner/best" 2>/dev/null)
+
+            if [ -z "$best" ] || echo "$best" | jq -e '.error' > /dev/null 2>&1; then
+                echo -e "${RED}Tuner not available${NC}"
+                return 1
+            fi
+
+            local arm_name=$(echo "$best" | jq -r '.arm_name')
+            local mean=$(echo "$best" | jq -r '.mean')
+            local mean_pct=$(echo "$mean * 100" | bc | xargs printf "%.0f")
+            local recency=$(echo "$best" | jq -r '.weights.recency')
+            local frequency=$(echo "$best" | jq -r '.weights.frequency')
+            local tag=$(echo "$best" | jq -r '.weights.tag')
+
+            echo -e "${BOLD}Best Performing Weights${NC}"
+            echo ""
+            echo -e "  Arm:        ${GREEN}${arm_name}${NC}"
+            echo -e "  Success:    ${GREEN}${mean_pct}%${NC}"
+            echo ""
+            echo -e "  Weights:"
+            echo -e "    Recency:   ${recency}"
+            echo -e "    Frequency: ${frequency}"
+            echo -e "    Tag:       ${tag}"
+            ;;
+
+        reset)
+            echo -e "${YELLOW}This will reset all adaptive weight learning data.${NC}"
+            read -p "Are you sure? (y/N) " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                curl -s -X POST "${INDEX_URL}/tuner/reset" | jq .
+                echo -e "${GREEN}Tuner reset to priors${NC}"
+            else
+                echo "Cancelled"
+            fi
+            ;;
+
+        *)
+            echo "Usage: aoa tuner [stats|best|reset]"
+            echo ""
+            echo "  stats   Show all arm performance (default)"
+            echo "  best    Show best performing weights"
+            echo "  reset   Reset learning to priors"
+            return 1
+            ;;
+    esac
+}
+
 cmd_history() {
     local limit="${1:-20}"
 
@@ -3750,6 +3836,7 @@ SYSTEM
   health                 Check all angles
   info                   Show indexing config, mounts, registered projects
   metrics                Prediction accuracy and savings
+  tuner [stats|best]     Adaptive weight learning performance
   baseline               Subagent baseline costs and potential savings
   services               Visual service map with live status
 
@@ -3842,6 +3929,7 @@ main() {
         quickstart|qs) cmd_quickstart ;;
         health)     cmd_health ;;
         metrics)    cmd_metrics ;;
+        tuner|t)    cmd_tuner "$@" ;;
         rate)       cmd_rate ;;
         baseline|bl) cmd_baseline ;;
         memory|mem) cmd_memory "$@" ;;

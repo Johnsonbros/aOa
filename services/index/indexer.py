@@ -2701,10 +2701,12 @@ def log_prediction():
         "predicted_files": ["/src/file1.py", "/src/file2.py"],
         "tags": ["python", "api"],
         "trigger_file": "/src/current.py",
-        "confidence": 0.85
+        "confidence": 0.85,
+        "arm_idx": 2  # Phase 4: Thompson Sampling arm index (optional)
     }
 
     Phase 4: Also logs to rolling ZSET for Hit@5 calculation over 24h window.
+              Tracks arm_idx for adaptive weight learning feedback.
     """
     if not RANKING_AVAILABLE or scorer is None:
         return jsonify({'error': 'Redis not available'}), 503
@@ -2715,6 +2717,7 @@ def log_prediction():
     tags = data.get('tags', [])
     trigger_file = data.get('trigger_file', '')
     confidence = data.get('confidence', 0.0)
+    arm_idx = data.get('arm_idx')  # Phase 4: Track which weights were used
 
     if not predicted_files:
         return jsonify({'success': True, 'logged': 0})
@@ -2733,6 +2736,7 @@ def log_prediction():
             'tags': tags,
             'trigger_file': trigger_file,
             'confidence': confidence,
+            'arm_idx': arm_idx,  # Phase 4: Store arm used for this prediction
             'hit': None  # Will be set by /predict/check
         }
 
@@ -2756,12 +2760,17 @@ def log_prediction():
 
         # Store prediction data in a hash that persists for rolling window
         rolling_data_key = f"aoa:rolling:data:{prediction_key}"
-        scorer.redis.client.hset(rolling_data_key, mapping={
+        rolling_data = {
             'session_id': session_id,
             'timestamp': str(timestamp),
             'predicted_files': json.dumps(predicted_files[:5]),  # Top 5 for Hit@5
             'hit': '',  # Empty = not yet evaluated
-        })
+        }
+        # Add arm_idx if provided
+        if arm_idx is not None:
+            rolling_data['arm_idx'] = str(arm_idx)
+
+        scorer.redis.client.hset(rolling_data_key, mapping=rolling_data)
         scorer.redis.client.expire(rolling_data_key, ROLLING_WINDOW_SECONDS + 3600)  # 25h TTL
 
         # Cleanup: Remove predictions older than rolling window
@@ -2771,7 +2780,8 @@ def log_prediction():
         return jsonify({
             'success': True,
             'logged': len(predicted_files),
-            'prediction_key': prediction_key
+            'prediction_key': prediction_key,
+            'arm_idx': arm_idx  # Return arm_idx for tracking
         })
 
     except Exception as e:
@@ -2833,10 +2843,19 @@ def check_prediction_hit():
                         if current_hit_str == '':
                             scorer.redis.client.hset(rolling_data_key, 'hit', '1')
 
+                    # Phase 4: Record feedback to tuner for adaptive weight learning
+                    arm_idx = prediction.get('arm_idx')
+                    if arm_idx is not None and tuner is not None:
+                        try:
+                            tuner.record_feedback(hit=True, arm_idx=arm_idx)
+                        except Exception:
+                            pass  # Don't fail the whole request if tuner feedback fails
+
                     return jsonify({
                         'hit': True,
                         'prediction_key': pred_key_str,
-                        'confidence': prediction.get('confidence', 0)
+                        'confidence': prediction.get('confidence', 0),
+                        'arm_idx': arm_idx  # Return which arm was used
                     })
 
         # No hit - record miss (global)
@@ -2881,7 +2900,18 @@ def prediction_stats():
         # Phase 4: Calculate rolling Hit@5 over 24h window
         rolling_stats = calculate_rolling_hit_rate()
 
-        return jsonify({
+        # Phase 4: Include tuner stats for adaptive weight learning
+        tuner_stats = None
+        if tuner is not None:
+            try:
+                tuner_stats = {
+                    'arms': tuner.get_stats(),
+                    'total_samples': sum(arm['samples'] for arm in tuner.get_stats())
+                }
+            except Exception:
+                pass  # Ignore tuner errors
+
+        response = {
             # Legacy stats
             'hits': hits,
             'misses': misses,
@@ -2890,7 +2920,13 @@ def prediction_stats():
             # Phase 4 rolling stats
             'rolling': rolling_stats,
             'project_id': project_id
-        })
+        }
+
+        # Add tuner stats if available
+        if tuner_stats:
+            response['tuner'] = tuner_stats
+
+        return jsonify(response)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -3007,6 +3043,15 @@ def finalize_predictions():
                     # Not yet evaluated - mark as miss
                     scorer.redis.client.hset(rolling_data_key, 'hit', '0')
                     finalized += 1
+
+                    # Phase 4: Record feedback to tuner for adaptive weight learning
+                    arm_idx_value = scorer.redis.client.hget(rolling_data_key, 'arm_idx')
+                    if arm_idx_value is not None and tuner is not None:
+                        try:
+                            arm_idx = int(arm_idx_value.decode() if isinstance(arm_idx_value, bytes) else arm_idx_value)
+                            tuner.record_feedback(hit=False, arm_idx=arm_idx)
+                        except (ValueError, Exception):
+                            pass  # Skip if arm_idx is invalid or tuner fails
 
         return jsonify({
             'finalized': finalized,
@@ -3716,11 +3761,15 @@ def rank_files():
         tag: Comma-separated tags to filter/boost by (optional)
         limit: Maximum files to return (default: 10)
         db: Redis database number (for testing, optional)
+        adaptive: Use Thompson Sampling for adaptive weights (default: true)
 
     Returns:
         {
             "files": ["/src/api/routes.py", ...],
             "details": [{"file": "...", "score": 0.85, ...}, ...],
+            "weights": {"recency": 0.4, "frequency": 0.3, "tag": 0.3},
+            "arm_idx": 2,
+            "arm_name": "default",
             "ms": 4.2
         }
     """
@@ -3741,16 +3790,52 @@ def rank_files():
     db = request.args.get('db')
     db = int(db) if db else None
 
+    # Phase 4: Adaptive weight learning (enabled by default)
+    use_adaptive = request.args.get('adaptive', 'true').lower() != 'false'
+
     # Get ranked files
     try:
+        arm_idx = None
+        arm_name = None
+        weights_used = scorer.get_weights()
+
+        # Phase 4: Apply adaptive weights via Thompson Sampling
+        if use_adaptive and tuner is not None:
+            weights = tuner.select_weights()
+            arm_idx = weights.pop('_arm_idx', None)
+
+            # Apply weights to scorer for this ranking
+            scorer.set_weights(
+                recency=weights['recency'],
+                frequency=weights['frequency'],
+                tag=weights['tag']
+            )
+            weights_used = weights
+
+            if arm_idx is not None:
+                arm = tuner.ARMS[arm_idx]
+                arm_name = arm.get('name', f'arm-{arm_idx}')
+
         results = scorer.get_ranked_files(tags=tags if tags else None, limit=limit, db=db)
 
-        return jsonify({
+        response = {
             'files': [r['file'] for r in results],
             'details': results,
             'tags_used': tags,
             'ms': round((time.time() - start) * 1000, 2)
-        })
+        }
+
+        # Add weight info to response
+        if use_adaptive and arm_idx is not None:
+            response['weights'] = weights_used
+            response['arm_idx'] = arm_idx
+            response['arm_name'] = arm_name
+            response['adaptive'] = True
+        else:
+            response['weights'] = weights_used
+            response['adaptive'] = False
+
+        return jsonify(response)
     except Exception as e:
         return jsonify({
             'error': str(e),
