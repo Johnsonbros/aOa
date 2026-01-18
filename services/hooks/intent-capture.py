@@ -373,6 +373,32 @@ def send_intent(tool: str, files: list, tags: list, session_id: str,
         except (URLError, Exception):
             pass  # Never block
 
+    # Record file access sequences for temporal learning (Markov chains)
+    # Only track actual file operations (Read, Edit, Write)
+    if tool in ('Read', 'Edit', 'Write'):
+        for file_path in files:
+            # Skip pattern entries and non-file paths
+            if file_path.startswith('pattern:') or file_path.startswith('cmd:') or not file_path.startswith('/'):
+                continue
+            try:
+                # Strip line range suffix for sequence tracking
+                clean_path = file_path.split(':')[0] if ':' in file_path else file_path
+                sequence_payload = json.dumps({
+                    "session_id": session_id,
+                    "project_id": PROJECT_ID,
+                    "file": clean_path,
+                    "tool": tool,
+                }).encode('utf-8')
+                req = Request(
+                    f"{AOA_URL}/sequence/record",
+                    data=sequence_payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                urlopen(req, timeout=1)
+            except (URLError, Exception):
+                pass  # Never block
+
 
 def main():
     # Debug mode: AOA_DEBUG=1 python3 intent-capture.py
