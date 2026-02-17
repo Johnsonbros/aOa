@@ -139,6 +139,11 @@ All five angles converge into **one confident answer**.
 
 ---
 
+
+## OpenClaw Integration
+
+For a production integration plan that keeps aOa's current optimization methods and runs them in an always-on OpenClaw runtime, see `OPENCLAW_INTEGRATION.md`.
+
 ## Quick Start
 
 ### 1. Install Once
