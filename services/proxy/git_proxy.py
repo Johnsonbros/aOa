@@ -30,9 +30,11 @@ import subprocess
 import tempfile
 import shutil
 import time
+import threading
+from urllib.parse import urlsplit
 from pathlib import Path
-from typing import Optional, Tuple, List
-from datetime import datetime
+from typing import Tuple, List
+from datetime import datetime, UTC
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -51,6 +53,7 @@ REPOS_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Whitelist file (persistent across restarts)
 WHITELIST_FILE = REPOS_ROOT / ".allowed_urls"
+WHITELIST_LOCK = threading.RLock()
 
 # Default allowed hosts (pre-populated)
 DEFAULT_ALLOWED_HOSTS = ["github.com", "gitlab.com", "bitbucket.org"]
@@ -68,36 +71,58 @@ MAX_LOG_SIZE = 500
 
 def load_whitelist() -> List[str]:
     """Load allowed hosts from file."""
-    if not WHITELIST_FILE.exists():
-        # Initialize with defaults
-        save_whitelist(DEFAULT_ALLOWED_HOSTS)
-        return DEFAULT_ALLOWED_HOSTS.copy()
+    with WHITELIST_LOCK:
+        if not WHITELIST_FILE.exists():
+            # Initialize with defaults
+            save_whitelist(DEFAULT_ALLOWED_HOSTS)
+            return DEFAULT_ALLOWED_HOSTS.copy()
 
-    try:
-        hosts = WHITELIST_FILE.read_text().strip().split("\n")
-        return [h.strip() for h in hosts if h.strip()]
-    except Exception:
-        return DEFAULT_ALLOWED_HOSTS.copy()
+        try:
+            hosts = WHITELIST_FILE.read_text().strip().split("\n")
+            return [h.strip() for h in hosts if h.strip()]
+        except Exception:
+            return DEFAULT_ALLOWED_HOSTS.copy()
 
 
 def save_whitelist(hosts: List[str]):
     """Save allowed hosts to file."""
-    WHITELIST_FILE.write_text("\n".join(hosts))
+    with WHITELIST_LOCK:
+        WHITELIST_FILE.write_text("\n".join(hosts))
+
+
+def normalize_host(host: str) -> str:
+    """Normalize host for comparisons and storage."""
+    return host.strip().lower().rstrip(".")
+
+
+def is_valid_hostname(host: str) -> bool:
+    """Strict hostname validator (no ports, paths, or malformed labels)."""
+    if not host or len(host) > 253:
+        return False
+    labels = host.split(".")
+    if any(not label or len(label) > 63 for label in labels):
+        return False
+    return all(re.match(r"^[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?$", label) for label in labels)
 
 
 def add_to_whitelist(host: str) -> Tuple[bool, str]:
     """Add a host to the whitelist."""
+    host = normalize_host(host)
+
     # Validate host format
-    if not re.match(r'^[\w\-\.]+$', host):
-        return False, "Invalid host format (alphanumeric, hyphens, dots only)"
+    if not is_valid_hostname(host):
+        log_operation("whitelist_add", host=host, success=False, error="Invalid host format")
+        return False, "Invalid host format (must be a valid DNS hostname, no ports or paths)"
 
-    hosts = load_whitelist()
+    with WHITELIST_LOCK:
+        hosts = load_whitelist()
 
-    if host in hosts:
-        return False, f"Host '{host}' already in whitelist"
+        if host in hosts:
+            log_operation("whitelist_add", host=host, success=False, error="Already in whitelist")
+            return False, f"Host '{host}' already in whitelist"
 
-    hosts.append(host)
-    save_whitelist(hosts)
+        hosts.append(host)
+        save_whitelist(hosts)
 
     log_operation("whitelist_add", host=host, success=True)
     return True, f"Added '{host}' to whitelist"
@@ -105,17 +130,22 @@ def add_to_whitelist(host: str) -> Tuple[bool, str]:
 
 def remove_from_whitelist(host: str) -> Tuple[bool, str]:
     """Remove a host from the whitelist."""
-    hosts = load_whitelist()
+    host = normalize_host(host)
 
-    # Don't allow removing defaults (safety)
-    if host in DEFAULT_ALLOWED_HOSTS:
-        return False, f"Cannot remove default host '{host}'"
+    with WHITELIST_LOCK:
+        hosts = load_whitelist()
 
-    if host not in hosts:
-        return False, f"Host '{host}' not in whitelist"
+        # Don't allow removing defaults (safety)
+        if host in DEFAULT_ALLOWED_HOSTS:
+            log_operation("whitelist_remove", host=host, success=False, error="Default host")
+            return False, f"Cannot remove default host '{host}'"
 
-    hosts.remove(host)
-    save_whitelist(hosts)
+        if host not in hosts:
+            log_operation("whitelist_remove", host=host, success=False, error="Not in whitelist")
+            return False, f"Host '{host}' not in whitelist"
+
+        hosts.remove(host)
+        save_whitelist(hosts)
 
     log_operation("whitelist_remove", host=host, success=True)
     return True, f"Removed '{host}' from whitelist"
@@ -139,16 +169,26 @@ def validate_git_url(url: str) -> Tuple[bool, str]:
     - Allowed hosts (github.com, gitlab.com, etc.)
     - Standard repository paths
     """
+    parsed = urlsplit(url)
+
     # Must be HTTPS
-    if not url.startswith("https://"):
+    if parsed.scheme != "https":
         return False, "Only HTTPS URLs allowed"
 
-    # Extract host
-    match = re.match(r'https://([^/]+)/', url)
-    if not match:
-        return False, "Invalid URL format"
+    # URL safety constraints
+    if parsed.username or parsed.password:
+        return False, "URL credentials are not allowed"
+    if parsed.query or parsed.fragment:
+        return False, "URL query strings and fragments are not allowed"
 
-    host = match.group(1)
+    host = normalize_host(parsed.hostname or "")
+    if not is_valid_hostname(host):
+        return False, "Invalid host format"
+    if parsed.port is not None:
+        return False, "Explicit ports are not allowed"
+
+    if not parsed.path or parsed.path == "/":
+        return False, "Invalid URL format"
 
     # Check allowed hosts
     allowed_hosts = get_allowed_hosts()
@@ -156,9 +196,13 @@ def validate_git_url(url: str) -> Tuple[bool, str]:
         return False, f"Host '{host}' not in allowed list: {allowed_hosts}"
 
     # Validate path (no .. traversal, no weird characters)
-    path = url[len(f"https://{host}/"):]
+    path = parsed.path.lstrip("/")
+    if not path:
+        return False, "Repository path required"
     if ".." in path:
         return False, "Path traversal not allowed"
+    if "//" in parsed.path or "\\" in path:
+        return False, "Invalid repository path format"
     if not re.match(r'^[\w\-\.\/]+$', path):
         return False, "Invalid characters in path"
 
@@ -181,7 +225,7 @@ def log_operation(action: str, **kwargs):
     global clone_log
 
     entry = {
-        "ts": datetime.utcnow().isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "action": action,
         **kwargs
     }
@@ -206,8 +250,8 @@ def git_clone(url: str, name: str, depth: int = 1) -> Tuple[bool, str]:
     """
     target_path = REPOS_ROOT / name
 
-    # Enforce shallow clone regardless of client input
-    depth = 1
+    # Capture client request for audit, but enforce shallow clone for execution.
+    requested_depth = depth
 
     if target_path.exists():
         return False, f"Repo '{name}' already exists"
@@ -220,10 +264,11 @@ def git_clone(url: str, name: str, depth: int = 1) -> Tuple[bool, str]:
 
     try:
         # Run git clone
+        effective_depth = 1
         result = subprocess.run(
             [
                 "git", "clone",
-                "--depth", str(depth),
+                "--depth", str(effective_depth),
                 "--single-branch",
                 url,
                 str(temp_path)
@@ -234,13 +279,13 @@ def git_clone(url: str, name: str, depth: int = 1) -> Tuple[bool, str]:
         )
 
         if result.returncode != 0:
-            log_operation("clone", url=url, name=name, success=False, error=result.stderr[:200])
+            log_operation("clone", url=url, name=name, requested_depth=requested_depth, effective_depth=effective_depth, success=False, error=result.stderr[:200])
             return False, f"Git clone failed: {result.stderr}"
 
         # Check size
         size_mb = sum(f.stat().st_size for f in temp_path.rglob("*") if f.is_file()) / (1024 * 1024)
         if size_mb > MAX_REPO_SIZE_MB:
-            log_operation("clone", url=url, name=name, success=False,
+            log_operation("clone", url=url, name=name, requested_depth=requested_depth, effective_depth=effective_depth, success=False,
                          error=f"Too large: {size_mb:.1f}MB")
             return False, f"Repo too large: {size_mb:.1f}MB > {MAX_REPO_SIZE_MB}MB limit"
 
@@ -253,6 +298,8 @@ def git_clone(url: str, name: str, depth: int = 1) -> Tuple[bool, str]:
         log_operation("clone",
                      url=url,
                      name=name,
+                     requested_depth=requested_depth,
+                     effective_depth=effective_depth,
                      size_mb=round(size_mb, 2),
                      elapsed_s=round(elapsed, 2),
                      success=True)
@@ -260,10 +307,10 @@ def git_clone(url: str, name: str, depth: int = 1) -> Tuple[bool, str]:
         return True, f"Cloned {name} ({size_mb:.1f}MB) in {elapsed:.1f}s"
 
     except subprocess.TimeoutExpired:
-        log_operation("clone", url=url, name=name, success=False, error="Timeout")
+        log_operation("clone", url=url, name=name, requested_depth=requested_depth, effective_depth=1, success=False, error="Timeout")
         return False, f"Clone timed out after {CLONE_TIMEOUT}s"
     except Exception as e:
-        log_operation("clone", url=url, name=name, success=False, error=str(e)[:200])
+        log_operation("clone", url=url, name=name, requested_depth=requested_depth, effective_depth=1, success=False, error=str(e)[:200])
         return False, f"Clone error: {e}"
     finally:
         # Cleanup temp
@@ -415,11 +462,13 @@ async def clone(req: CloneRequest):
     # Validate URL
     valid, msg = validate_git_url(req.url)
     if not valid:
+        log_operation("clone", url=req.url, name=req.name, requested_depth=req.depth, success=False, error=f"Validation failed: {msg}")
         raise HTTPException(status_code=400, detail={"error": msg, "url": req.url})
 
     # Validate name
     valid, msg = validate_repo_name(req.name)
     if not valid:
+        log_operation("clone", url=req.url, name=req.name, requested_depth=req.depth, success=False, error=f"Validation failed: {msg}")
         raise HTTPException(status_code=400, detail={"error": msg, "name": req.name})
 
     # Clone
@@ -511,7 +560,7 @@ async def add_whitelist(req: dict):
 
     Use this to add private git servers or documentation sites.
     """
-    host = req.get("host", "").strip()
+    host = normalize_host(req.get("host", ""))
     if not host:
         raise HTTPException(status_code=400, detail={"error": "host required"})
 
