@@ -121,8 +121,9 @@ def remove_from_whitelist(host: str) -> Tuple[bool, str]:
     return True, f"Removed '{host}' from whitelist"
 
 
-# Load at startup
-ALLOWED_HOSTS = load_whitelist()
+def get_allowed_hosts() -> List[str]:
+    """Return the current whitelist from disk."""
+    return load_whitelist()
 
 
 # =============================================================================
@@ -150,8 +151,9 @@ def validate_git_url(url: str) -> Tuple[bool, str]:
     host = match.group(1)
 
     # Check allowed hosts
-    if host not in ALLOWED_HOSTS:
-        return False, f"Host '{host}' not in allowed list: {ALLOWED_HOSTS}"
+    allowed_hosts = get_allowed_hosts()
+    if host not in allowed_hosts:
+        return False, f"Host '{host}' not in allowed list: {allowed_hosts}"
 
     # Validate path (no .. traversal, no weird characters)
     path = url[len(f"https://{host}/"):]
@@ -203,6 +205,9 @@ def git_clone(url: str, name: str, depth: int = 1) -> Tuple[bool, str]:
     - Size limited
     """
     target_path = REPOS_ROOT / name
+
+    # Enforce shallow clone regardless of client input
+    depth = 1
 
     if target_path.exists():
         return False, f"Repo '{name}' already exists"
@@ -362,12 +367,13 @@ class DeleteRequest(BaseModel):
 
 @app.get("/health")
 async def health():
+    allowed_hosts = get_allowed_hosts()
     return {
         "status": "ok",
         "service": "aOa Git Proxy",
         "internet_access": True,
         "warning": "This is the ONLY service with internet access",
-        "allowed_hosts": ALLOWED_HOSTS,
+        "allowed_hosts": allowed_hosts,
         "restrictions": [
             "HTTPS URLs only",
             "Whitelisted hosts only",
@@ -388,7 +394,7 @@ async def status():
         "repos": repos,
         "total_repos": len(repos),
         "total_size_mb": round(total_size, 2),
-        "allowed_hosts": ALLOWED_HOSTS,
+        "allowed_hosts": get_allowed_hosts(),
         "max_repo_size_mb": MAX_REPO_SIZE_MB,
         "clone_timeout": CLONE_TIMEOUT,
         "recent_operations": clone_log[-20:],
@@ -460,7 +466,7 @@ async def repos():
     """List all cloned repos."""
     return {
         "repos": list_repos(),
-        "allowed_hosts": ALLOWED_HOSTS,
+        "allowed_hosts": get_allowed_hosts(),
     }
 
 
@@ -545,7 +551,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("GIT_PROXY_PORT", 9997))
     print(f"Starting aOa Git Proxy on port {port}")
     print(f"Repos root: {REPOS_ROOT}")
-    print(f"Allowed hosts: {ALLOWED_HOSTS}")
+    print(f"Allowed hosts: {get_allowed_hosts()}")
     print(f"Max repo size: {MAX_REPO_SIZE_MB}MB")
     print(f"Clone timeout: {CLONE_TIMEOUT}s")
     print()
