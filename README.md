@@ -144,6 +144,8 @@ All five angles converge into **one confident answer**.
 
 For a production integration plan that keeps aOa's current optimization methods and runs them in an always-on OpenClaw runtime, see `OPENCLAW_INTEGRATION.md`.
 
+If you want to spin a dedicated OpenClaw-only fork and optimize it for low-token agent workflows, see `OPENCLAW_FORK_GUIDE.md`.
+
 ## Quick Start
 
 ### 1. Install Once
