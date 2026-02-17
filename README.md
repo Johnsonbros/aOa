@@ -146,6 +146,8 @@ For a production integration plan that keeps aOa's current optimization methods 
 
 If you want to spin a dedicated OpenClaw-only fork and optimize it for low-token agent workflows, see `OPENCLAW_FORK_GUIDE.md`.
 
+For a concrete, enforceable operating contract, see `OPENCLAW_AGENT_POLICY.md`.
+
 ## Quick Start
 
 ### 1. Install Once
