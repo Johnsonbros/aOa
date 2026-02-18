@@ -28,7 +28,7 @@ services:
       context: ./services/gateway
       dockerfile: Dockerfile
     ports:
-      - "${GATEWAY_PORT:-8080}:8080"
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
     environment:
       - INDEX_URL=http://index:9999
       - STATUS_URL=http://status:9998
@@ -60,10 +60,12 @@ services:
       - ./data:/config:rw
       - ${PROJECTS_ROOT}:/userhome:ro     # User projects (from .env)
     environment:
-      - CODEBASE_ROOT=/codebase
+      - CODEBASE_ROOT=
       - REPOS_ROOT=/repos
       - CONFIG_DIR=/config
+      - INDEXES_DIR=/config/indexes
       - REDIS_URL=redis://redis:6379/0
+      - PYTHONUNBUFFERED=1
       - CLAUDE_SESSIONS=/userhome/.claude  # Derived from PROJECTS_ROOT
       - USER_HOME=${PROJECTS_ROOT}         # For path translation (from .env)
     networks:
